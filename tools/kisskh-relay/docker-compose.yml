@@ -1,0 +1,55 @@
+services:
+  # FlareSolverr: opzionale, serve solo al "solve path" automatico.
+  #   docker compose --profile solver up -d --build
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: kisskh-flaresolverr
+    restart: unless-stopped
+    profiles: ["solver"]
+    environment:
+      LOG_LEVEL: info
+    shm_size: "1gb"
+    networks:
+      - relay
+
+  kisskh-relay:
+    build: .
+    container_name: kisskh-relay
+    restart: unless-stopped
+    ports:
+      - "8191:8191"
+    environment:
+      # Cambia il token prima di esporre il servizio in rete.
+      RELAY_TOKEN: "cambia-questo-token"
+      # Host che il relay puo raggiungere. Il CDN dei sottotitoli puo cambiare
+      # dominio: se nei log compare "[deny] host non in allowlist", aggiungilo.
+      RELAY_HOSTS: "kisskh.co,cdnvideo11.shop"
+      RELAY_IMPERSONATE: "chrome"
+      RELAY_TIMEOUT: "25"
+      RELAY_CACHE_TTL: "30"
+      # "1" logga ogni richiesta (host, esito): utile solo per diagnosticare.
+      RELAY_VERBOSE: "0"
+
+      # --- Modalita A: cookie copiati dal browser ---
+      # Apri https://kisskh.co in un browser e supera il challenge, poi copia
+      # cf_clearance (e __cf_bm) e incolla qui lo UA esatto di quel browser.
+      RELAY_COOKIES: ""
+      RELAY_USER_AGENT: ""
+      RELAY_CLEARANCE_TTL: "3600"
+
+      # --- Modalita B: solve automatico con FlareSolverr (profilo "solver") ---
+      # Lasciare vuoto quando si usa la modalita A.
+      RELAY_SOLVER_URL: ""
+      RELAY_SOLVER_TIMEOUT: "120"
+
+    networks:
+      - relay
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+networks:
+  relay:
+    driver: bridge

@@ -135,6 +135,22 @@ Dal pulsante ⚙️ dell'estensione (*Impostazioni → Estensioni → PriSynx*) 
 
 **KissKH nel hub**: le righe native compaiono in home (se attive) e i risultati nella ricerca; aprendo una scheda, episodi e stream vengono risolti da KissKH. La voce *Provider* include KissKH come sorgente per i titoli TMDB: si può disattivare o spostare nell'ordine come le altre.
 
+**KissKH e relay Cloudflare (opzionale)**: KissKH è protetto da Cloudflare e da alcune reti le richieste ricevono una *challenge* (`403` con `cf-mitigated: challenge`), quindi catalogo vuoto e niente riproduzione. Se succede solo a te e non ad altri utenti, il problema è la reputazione del tuo IP, non il plugin. Dal campo **Relay Cloudflare** nelle impostazioni KissKH si può indicare un relay fidato che esegua le richieste al posto dell'app:
+
+```
+https://mio-relay.example/fetch?token=SEGRETO&url={url}
+```
+
+`{url}` viene sostituito con l'URL già codificato: va lasciato così com'è. Il relay deve esporre almeno:
+
+| Endpoint | Uso |
+|---|---|
+| `GET /fetch?url=…` | restituisce il body originale della URL richiesta |
+| `POST /store` | riceve un sottotitolo generato (decifrato o tradotto) e risponde `{"url": …}` |
+| `GET /sub/<id>.srt` | serve quel sottotitolo al player |
+
+Con solo `/fetch` funzionano catalogo, schede e i sottotitoli `.srt`/`.vtt`; senza `/store` i sottotitoli legacy cifrati e quelli tradotti da DeepL restano sul server locale del dispositivo. Non esiste un servizio ufficiale: nella cartella **`tools/kisskh-relay/`** c'è un'implementazione di riferimento (FastAPI + Docker, con cookie e token vuoti), da usare solo se serve. Senza relay il plugin funziona come sempre, con richieste dirette.
+
 **Debrid (IlCorsaroViola)**: dalla scheda *Debrid* scegli il servizio (**Real-Debrid**, **AllDebrid** o **TorBox**), incolla la chiave API (c'è anche *Apri pagina delle chiavi* e *Verifica chiave* per controllare l'account) e regola l'**attesa massima**. I torrent già in cache diventano subito link diretti con il tag del servizio (`· RD`, `· AD`, `· TB`); gli altri vengono inviati al servizio (il magnet resta, con l'etichetta `· magnet (RD in download)`) e al tentativo successivo, quando il download è pronto, arriva il link diretto senza riaggiungere il torrent. La stessa schermata è disponibile come impostazioni dell'estensione singola IlCorsaroViola (ingranaggio in *Estensioni*).
 
 Locandine: le card TMDB e Kitsu mostrano il voto (TMDB / IMDb) se la versione di CloudStream lo supporta. Aprendo un titolo da una riga **TopX**, lo sfondo della pagina è la copertina TopX landscape; dalle righe TMDB resta lo sfondo TMDB.

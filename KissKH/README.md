@@ -12,6 +12,10 @@ e riprodurre episodi senza richiedere un ID TMDB o IMDb.
 - Sottotitoli nativi ITA/ENG, decifratura dei vecchi sottotitoli e traduzione
   DeepL opzionale. La chiave DeepL viene inserita nelle impostazioni e resta
   salvata sul dispositivo.
+- Con il relay configurato, anche i file dei sottotitoli passano dal relay: il
+  player riceve sempre un URL HTTP (i testi decifrati o tradotti vengono
+  pubblicati sul relay), quindi non deve raggiungere il CDN ne leggere dal
+  server locale del dispositivo.
 - Il matching TMDB e mantenuto solo come percorso alternativo quando il
   provider risolve un titolo proveniente da un catalogo esterno.
 
@@ -32,8 +36,13 @@ VPN.** La VPN instrada normalmente anche i dati video, non solo il catalogo,
 quindi considera l'eventuale limite di traffico del servizio VPN.
 
 Il campo relay nelle impostazioni e opzionale: configurarlo richiede un relay
-fidato compatibile con il template. Non e un servizio KissKH ufficiale e non
-garantisce l'accesso in presenza di una challenge.
+fidato compatibile con il template (`https://relay/esempio/?url={url}`). Quando
+e impostato, le chiamate API e i file dei sottotitoli vengono scaricati dal
+relay, e i sottotitoli decifrati o tradotti vengono pubblicati sul relay
+(`POST /store`) per essere letti dal player come normali URL HTTP. Non e un
+servizio KissKH ufficiale e non garantisce l'accesso in presenza di una
+challenge. Senza relay il comportamento resta quello precedente: richieste
+dirette con `User-Agent`, `Referer` e server locale per i testi generati.
 
 ## Build
 

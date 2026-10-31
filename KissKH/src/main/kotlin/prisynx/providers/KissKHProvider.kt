@@ -372,31 +372,43 @@ class KissKHProvider : TmdbProvider("KissKH", KissKHSettings.DEFAULT_BASE) {
         for (subtitle in subtitles) {
             if (subtitle.lang == "en") english = subtitle
 
-            if (subtitle.legacy) {
+            // I file normali vanno al player tramite il relay; quelli cifrati
+            // (legacy) vengono decifrati qui e pubblicati sul relay, così la TV
+            // non deve né contattare il CDN né leggere dal server locale.
+            val url = if (subtitle.legacy) {
                 val text = KissKHSubtitle.fetchText(subtitle.url) ?: continue
-                val url = LocalSubtitle.publish(text, "srt") ?: continue
-                subtitleCallback(newSubtitleFile(subtitle.lang, url))
+                KissKHApi.publishSubtitle(text) ?: continue
             } else {
-                subtitleCallback(
-                    newSubtitleFile(subtitle.lang, subtitle.url) {
-                        headers = KissKHApi.headers()
-                    }
-                )
+                KissKHApi.proxied(subtitle.url)
             }
+            subtitleCallback(newSubtitleFile(subtitle.lang, url) {
+                headers = KissKHApi.headers()
+            })
         }
 
         val target = KissKHText.sanitizeTargetLang(KissKHSettings.targetLang) ?: "it"
         val source = english ?: subtitles.firstOrNull { it.lang != target } ?: return
         if (target.substringBefore('-') == "en" || !KissKHSettings.translationActive()) return
 
-        val translatedUrl = LocalSubtitle.publishLazy("srt") {
-            KissKHSubtitle.translateUrl(
+        val translatedUrl = if (KissKHApi.hasRelay()) {
+            val text = KissKHSubtitle.translateUrl(
                 url = source.url,
                 from = source.lang,
                 to = target,
                 context = context,
                 key = KissKHSettings.deeplKey
-            )
+            ) ?: return
+            KissKHApi.publishSubtitle(text)
+        } else {
+            LocalSubtitle.publishLazy("srt") {
+                KissKHSubtitle.translateUrl(
+                    url = source.url,
+                    from = source.lang,
+                    to = target,
+                    context = context,
+                    key = KissKHSettings.deeplKey
+                )
+            }
         } ?: return
 
         subtitleCallback(newSubtitleFile(KissKHText.deeplLabel(target), translatedUrl))
