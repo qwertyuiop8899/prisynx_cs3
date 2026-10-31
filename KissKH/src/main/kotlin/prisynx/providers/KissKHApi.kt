@@ -2,10 +2,14 @@ package prisynx.providers
 
 import android.util.Log
 import com.fasterxml.jackson.databind.JsonNode
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import prisynx.providers.core.LocalSubtitle
 import prisynx.providers.core.UA_PC
 import prisynx.providers.core.enc
 import prisynx.providers.core.json
 import prisynx.providers.core.net
+import java.net.URI
 import java.net.URLEncoder
 
 internal data class KissStream(
@@ -56,6 +60,52 @@ internal object KissKHApi {
         val encoded = URLEncoder.encode(url, "UTF-8").replace("+", "%20")
         return if (template.contains("{url}")) template.replace("{url}", encoded)
         else template + encoded
+    }
+
+    fun hasRelay(): Boolean = KissKHSettings.proxyTemplate.isNotBlank()
+
+    /** Base del relay (stessa origine del proxy template) per pubblicare testi. */
+    private fun storeEndpoint(): String? {
+        val template = KissKHSettings.proxyTemplate
+        if (template.isBlank()) return null
+        return try {
+            val uri = URI(template)
+            val authority = uri.authority ?: return null
+            val path = uri.path.orEmpty()
+            val root = "${uri.scheme ?: "http"}://$authority${path.substringBeforeLast('/', "")}"
+            val token = Regex("(?:^|&)token=([^&]+)")
+                .find(uri.rawQuery.orEmpty())
+                ?.groupValues
+                ?.get(1)
+            if (token.isNullOrBlank()) "$root/store" else "$root/store?token=$token"
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Pubblica un sottotitolo generato (decifrato o tradotto) sul relay, così il
+     * player non deve mai raggiungere il server locale del telefono.
+     */
+    suspend fun publishSubtitle(text: String): String? {
+        storeEndpoint()?.let { endpoint ->
+            try {
+                val response = net.post(
+                    endpoint,
+                    requestBody = text.toRequestBody("application/x-subrip; charset=utf-8".toMediaType()),
+                    timeout = 20
+                )
+                if (response.isSuccessful) {
+                    val url = json.readTree(response.text).path("url").asText("")
+                    if (url.isNotBlank()) return url
+                } else {
+                    Log.w(TAG, "relay store HTTP ${response.code}")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "relay store failed: ${e.message}")
+            }
+        }
+        return LocalSubtitle.publish(text, "srt")
     }
 
     suspend fun getText(pathOrUrl: String, timeout: Long = 20): String? {

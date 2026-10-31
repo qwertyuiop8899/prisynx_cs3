@@ -50,20 +50,41 @@ internal object KissKHSubtitle {
         KissKHApi.headers() + ("Accept" to "*/*")
 
     suspend fun fetchText(url: String): String? {
-        return try {
-            val response = net.get(url, headers = subtitleHeaders(), timeout = 30)
-            if (!response.isSuccessful) {
-                Log.w(TAG, "subtitle HTTP ${response.code} ${url.substringBefore('?')}")
-                return null
-            }
-            var text = response.body.bytes().toString(Charsets.UTF_8)
-            text = text.removePrefix("\uFEFF")
-            if (isLegacy(url)) text = decryptLegacy(text)
-            text
+        val text = download(url) ?: return null
+        return if (isLegacy(url)) decryptLegacy(text) else text
+    }
+
+    /**
+     * Scarica il file passando dal relay quando configurato (il CDN dei
+     * sottotitoli sta dietro lo stesso challenge Cloudflare delle API), con
+     * fallback diretto se il relay non risponde o non conosce l'host.
+     */
+    private suspend fun download(url: String): String? {
+        val relayed = KissKHApi.proxied(url)
+        var response = try {
+            net.get(relayed, headers = subtitleHeaders(), timeout = 30)
         } catch (e: Exception) {
             Log.w(TAG, "subtitle fetch failed: ${e.message}")
             null
         }
+
+        if ((response == null || !response.isSuccessful) && relayed != url) {
+            Log.w(TAG, "subtitle relay ${response?.code}, retry direct ${url.substringBefore('?')}")
+            response = try {
+                net.get(url, headers = subtitleHeaders(), timeout = 30)
+            } catch (e: Exception) {
+                Log.w(TAG, "subtitle fetch failed: ${e.message}")
+                null
+            }
+        }
+
+        if (response == null) return null
+        if (!response.isSuccessful) {
+            Log.w(TAG, "subtitle HTTP ${response.code} ${url.substringBefore('?')}")
+            return null
+        }
+
+        return response.body.bytes().toString(Charsets.UTF_8).removePrefix("\uFEFF")
     }
 
     suspend fun translateUrl(
