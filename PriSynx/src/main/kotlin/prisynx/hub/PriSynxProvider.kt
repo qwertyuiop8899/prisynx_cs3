@@ -131,7 +131,11 @@ class PriSynxProvider : TmdbProvider("PriSynx", "https://www.themoviedb.org") {
             } ?: emptyList()
         }
         val tmdb = try {
-            tmdbSearch(query)
+            tmdbSearch(query).onEach { result ->
+                MediaRef.parse(result.url)?.let {
+                    result.posterUrl = TopX.posterFor(it.isTv, it.id, HubSettings.topxPortraitUrl)
+                }
+            }
         } catch (e: Exception) {
             emptyList()
         }
@@ -140,13 +144,17 @@ class PriSynxProvider : TmdbProvider("PriSynx", "https://www.themoviedb.org") {
 
     override suspend fun load(url: String): LoadResponse {
         val ref = MediaRef.parse(url)
-        if (ref != null && url.endsWith(TopX.FROM_TOPX)) {
-            // Opened from a TopX row: use the TopX landscape cover as backdrop.
+        if (ref != null) {
+            // TopX portrait cover: CloudStream stores it for "Continua a guardare".
             return super.load(url).apply {
-                backgroundPosterUrl = TopX.backdropFor(ref.isTv, ref.id, HubSettings.topxLandscapeUrl)
+                posterUrl = TopX.posterFor(ref.isTv, ref.id, HubSettings.topxPortraitUrl)
+                if (url.endsWith(TopX.FROM_TOPX)) {
+                    // Opened from a TopX row: use the TopX landscape cover as backdrop.
+                    backgroundPosterUrl = TopX.backdropFor(ref.isTv, ref.id, HubSettings.topxLandscapeUrl)
+                }
             }
         }
-        if (ref != null || KitsuRef.parse(url) != null) return super.load(url)
+        if (KitsuRef.parse(url) != null) return super.load(url)
         if (KissKHHub.isKissUrl(url)) return KissKHHub.api.load(url)
         return RaiHub.api.load(url)
             ?: throw com.lagradost.cloudstream3.ErrorLoadingException("RaiPlay: contenuto non disponibile")
@@ -184,6 +192,7 @@ class PriSynxProvider : TmdbProvider("PriSynx", "https://www.themoviedb.org") {
                                 if (landscape && item.poster != null) item.poster
                                 else TopX.landscapeCover(landscapeManifest, item)
                             )
+                            TopX.rememberPoster(item)
                             card(item)
                         }
                         if (cards.isEmpty()) null

@@ -148,6 +148,8 @@ object HubSettings {
             prefs?.edit()?.putString(key, value.trim())?.apply()
         }
 
+    val topxPortraitUrl: String get() = topxUrlFor(false)
+
     /** Landscape manifest, used for the title backdrop when a TopX card is opened. */
     val topxLandscapeUrl: String get() = topxUrlFor(true)
 

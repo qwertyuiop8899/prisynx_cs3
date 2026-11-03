@@ -107,6 +107,19 @@ object TopX {
             TopxItem(tmdbId, isTv, "", null, null)
         )
 
+    private val posters = HashMap<String, String>()
+
+    fun rememberPoster(item: TopxItem) {
+        val poster = item.poster ?: return
+        if (poster.contains("shape=poster")) synchronized(posters) { posters[refKey(item.isTv, item.tmdbId)] = poster }
+    }
+
+    /** Portrait TopX "fresh" cover for any TMDB title (keeps the chart rank when known). */
+    fun posterFor(isTv: Boolean, tmdbId: Int, portraitManifest: String): String =
+        synchronized(posters) { posters[refKey(isTv, tmdbId)] } ?: (baseOf(portraitManifest) +
+            "/top-cover?type=${if (isTv) "tv" else "movie"}&tmdbId=$tmdbId&shape=poster" +
+            "&canvasBackground=fresh&showMeta=true&showLogo=true&country=it&v=fresh-v9")
+
     fun clearCache() {
         manifestCache = null
         synchronized(catalogCache) { catalogCache.clear() }
