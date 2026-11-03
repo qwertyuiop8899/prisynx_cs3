@@ -107,18 +107,11 @@ object TopX {
             TopxItem(tmdbId, isTv, "", null, null)
         )
 
-    private val posters = HashMap<String, String>()
+    /** TopX "fresh" art (poster + logo + genre + rating, no chart rank) for any TMDB title. */
+    fun posterFor(isTv: Boolean, tmdbId: Int): String =
+        "$ART_BASE/${if (isTv) "series" else "movie"}/tmdb%3A$tmdbId.jpg?shape=poster&lang=it"
 
-    fun rememberPoster(item: TopxItem) {
-        val poster = item.poster ?: return
-        if (poster.contains("shape=poster")) synchronized(posters) { posters[refKey(item.isTv, item.tmdbId)] = poster }
-    }
-
-    /** Portrait TopX "fresh" cover for any TMDB title (keeps the chart rank when known). */
-    fun posterFor(isTv: Boolean, tmdbId: Int, portraitManifest: String): String =
-        synchronized(posters) { posters[refKey(isTv, tmdbId)] } ?: (baseOf(portraitManifest) +
-            "/top-cover?type=${if (isTv) "tv" else "movie"}&tmdbId=$tmdbId&shape=poster" +
-            "&canvasBackground=fresh&showMeta=true&showLogo=true&country=it&v=fresh-v9")
+    private const val ART_BASE = "https://topx.stremio-italia.eu/art/fresh"
 
     fun clearCache() {
         manifestCache = null

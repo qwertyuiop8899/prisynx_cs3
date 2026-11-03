@@ -133,7 +133,7 @@ class PriSynxProvider : TmdbProvider("PriSynx", "https://www.themoviedb.org") {
         val tmdb = try {
             tmdbSearch(query).onEach { result ->
                 MediaRef.parse(result.url)?.let {
-                    result.posterUrl = TopX.posterFor(it.isTv, it.id, HubSettings.topxPortraitUrl)
+                    result.posterUrl = TopX.posterFor(it.isTv, it.id)
                 }
             }
         } catch (e: Exception) {
@@ -147,7 +147,7 @@ class PriSynxProvider : TmdbProvider("PriSynx", "https://www.themoviedb.org") {
         if (ref != null) {
             // TopX portrait cover: CloudStream stores it for "Continua a guardare".
             return super.load(url).apply {
-                posterUrl = TopX.posterFor(ref.isTv, ref.id, HubSettings.topxPortraitUrl)
+                posterUrl = TopX.posterFor(ref.isTv, ref.id)
                 if (url.endsWith(TopX.FROM_TOPX)) {
                     // Opened from a TopX row: use the TopX landscape cover as backdrop.
                     backgroundPosterUrl = TopX.backdropFor(ref.isTv, ref.id, HubSettings.topxLandscapeUrl)
@@ -192,7 +192,6 @@ class PriSynxProvider : TmdbProvider("PriSynx", "https://www.themoviedb.org") {
                                 if (landscape && item.poster != null) item.poster
                                 else TopX.landscapeCover(landscapeManifest, item)
                             )
-                            TopX.rememberPoster(item)
                             card(item)
                         }
                         if (cards.isEmpty()) null
