@@ -1,4 +1,4 @@
-﻿// PriSynx hub: one extension bundling every PriSynx source (TMDB based
+// PriSynx hub: one extension bundling every PriSynx source (TMDB based
 // providers plus the native KissKH catalogue). The provider sources of the
 // other modules are copied in (without their *Plugin.kt entry points) so
 // there is a single @CloudstreamPlugin class.
@@ -20,7 +20,7 @@ android {
 
 tasks.named("preBuild").configure { dependsOn(syncHubSources) }
 
-version = 19
+version = 20
 
 cloudstream {
     description = "PriSynx: tutte le sorgenti in un'unica estensione (RaiPlay e KissKH inclusi), con menu TV per scegliere provider, ordine, cataloghi TMDB, TopX, anime, RaiPlay, KissKH e servizi debrid (con attesa del download) per IlCorsaroViola."

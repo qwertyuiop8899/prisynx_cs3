@@ -77,35 +77,22 @@ object TopX {
         return list
     }
 
-    /** Cards opened from a TopX row: TMDB key ("movie:1"/"tv:1") -> landscape cover. */
-    private val backdrops = HashMap<String, String>()
-
     const val FROM_TOPX = "?src=topx"
+
+    private const val ART_BASE = "https://topx.stremio-italia.eu/art/fresh"
 
     fun refKey(isTv: Boolean, tmdbId: Int) = (if (isTv) "tv:" else "movie:") + tmdbId
 
-    /** Landscape version of a TopX cover, rendered with the landscape manifest. */
-    fun landscapeCover(landscapeManifest: String, item: TopxItem): String {
-        val base = baseOf(landscapeManifest)
-        val poster = item.poster.orEmpty()
-        val query = if (poster.contains("/top-cover?")) {
-            poster.substringAfter("/top-cover?").replace("shape=poster", "shape=landscape")
-        } else {
-            "type=${if (item.isTv) "tv" else "movie"}&tmdbId=${item.tmdbId}&shape=landscape" +
-                "&canvasBackground=fresh&showMeta=true&showLogo=true&showYear=true&country=it&v=fresh-v9"
-        }
-        return "$base/top-cover?$query"
-    }
+    /** Clean landscape version of a TopX cover without ranking overlays. */
+    fun landscapeCover(landscapeManifest: String, item: TopxItem): String =
+        backdropFor(item.isTv, item.tmdbId)
 
-    fun rememberBackdrop(item: TopxItem, url: String) = synchronized(backdrops) {
-        backdrops[refKey(item.isTv, item.tmdbId)] = url
-    }
+    @Deprecated("Backdrops now use clean fresh art endpoint without ranking numbers")
+    fun rememberBackdrop(item: TopxItem, url: String) {}
 
-    fun backdropFor(isTv: Boolean, tmdbId: Int, landscapeManifest: String): String =
-        synchronized(backdrops) { backdrops[refKey(isTv, tmdbId)] } ?: landscapeCover(
-            landscapeManifest,
-            TopxItem(tmdbId, isTv, "", null, null)
-        )
+    /** TopX "fresh" landscape art (16:9 backdrop + logo + genre + rating, no chart rank) for any TMDB title. */
+    fun backdropFor(isTv: Boolean, tmdbId: Int, landscapeManifest: String = ""): String =
+        "$ART_BASE/${if (isTv) "series" else "movie"}/tmdb%3A$tmdbId.jpg?shape=landscape&lang=it&year=1&yv=2"
 
     /** Chart covers: also print the release year. */
     fun withYear(url: String): String =
@@ -114,8 +101,6 @@ object TopX {
     /** TopX "fresh" art (poster + logo + genre + rating, no chart rank) for any TMDB title. */
     fun posterFor(isTv: Boolean, tmdbId: Int): String =
         "$ART_BASE/${if (isTv) "series" else "movie"}/tmdb%3A$tmdbId.jpg?shape=poster&lang=it&year=1&yv=2"
-
-    private const val ART_BASE = "https://topx.stremio-italia.eu/art/fresh"
 
     fun clearCache() {
         manifestCache = null

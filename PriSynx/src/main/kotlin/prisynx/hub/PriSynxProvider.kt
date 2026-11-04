@@ -145,13 +145,10 @@ class PriSynxProvider : TmdbProvider("PriSynx", "https://www.themoviedb.org") {
     override suspend fun load(url: String): LoadResponse {
         val ref = MediaRef.parse(url)
         if (ref != null) {
-            // TopX portrait cover: CloudStream stores it for "Continua a guardare".
+            // TopX portrait cover and clean landscape backdrop for all TMDB titles.
             return super.load(url).apply {
                 posterUrl = TopX.posterFor(ref.isTv, ref.id)
-                if (url.endsWith(TopX.FROM_TOPX)) {
-                    // Opened from a TopX row: use the TopX landscape cover as backdrop.
-                    backgroundPosterUrl = TopX.backdropFor(ref.isTv, ref.id, HubSettings.topxLandscapeUrl)
-                }
+                backgroundPosterUrl = TopX.backdropFor(ref.isTv, ref.id)
             }
         }
         if (KitsuRef.parse(url) != null) return super.load(url)
@@ -178,7 +175,6 @@ class PriSynxProvider : TmdbProvider("PriSynx", "https://www.themoviedb.org") {
     private suspend fun topxRows(): List<HomePageList> {
         val url = HubSettings.topxUrl
         val landscape = HubSettings.topxLandscape
-        val landscapeManifest = HubSettings.topxLandscapeUrl
         val catalogs = HubSettings.orderTopx(TopX.catalogs(url)) { it.key }
             .filter { HubSettings.isTopxCatalogEnabled(it.key) }
         val gate = Semaphore(6)
@@ -186,14 +182,7 @@ class PriSynxProvider : TmdbProvider("PriSynx", "https://www.themoviedb.org") {
             catalogs.map { catalog ->
                 async {
                     gate.withPermit {
-                        val cards = TopX.items(url, catalog).map { item ->
-                            TopX.rememberBackdrop(
-                                item,
-                                if (landscape && item.poster != null) item.poster
-                                else TopX.landscapeCover(landscapeManifest, item)
-                            )
-                            card(item)
-                        }
+                        val cards = TopX.items(url, catalog).map { item -> card(item) }
                         if (cards.isEmpty()) null
                         else HomePageList(catalog.label, cards, isHorizontalImages = landscape)
                     }
