@@ -68,7 +68,7 @@ object TopX {
                 tmdbId = tmdb,
                 isTv = isTv,
                 title = m.path("name").asText("").ifBlank { return@mapNotNull null },
-                poster = m.path("poster").asText("").ifBlank { null },
+                poster = m.path("poster").asText("").ifBlank { null }?.let { withYear(it) },
                 year = m.path("year").asInt(0).takeIf { it > 0 }
                     ?: m.path("releaseInfo").asText("").take(4).toIntOrNull()
             )
@@ -92,7 +92,7 @@ object TopX {
             poster.substringAfter("/top-cover?").replace("shape=poster", "shape=landscape")
         } else {
             "type=${if (item.isTv) "tv" else "movie"}&tmdbId=${item.tmdbId}&shape=landscape" +
-                "&canvasBackground=fresh&showMeta=true&showLogo=true&country=it&v=fresh-v9"
+                "&canvasBackground=fresh&showMeta=true&showLogo=true&showYear=true&country=it&v=fresh-v9"
         }
         return "$base/top-cover?$query"
     }
@@ -106,6 +106,10 @@ object TopX {
             landscapeManifest,
             TopxItem(tmdbId, isTv, "", null, null)
         )
+
+    /** Chart covers: also print the release year. */
+    fun withYear(url: String): String =
+        if (url.contains("/top-cover?") && !url.contains("showYear=")) "$url&showYear=true" else url
 
     /** TopX "fresh" art (poster + logo + genre + rating, no chart rank) for any TMDB title. */
     fun posterFor(isTv: Boolean, tmdbId: Int): String =
