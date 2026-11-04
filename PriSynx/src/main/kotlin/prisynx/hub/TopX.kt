@@ -109,7 +109,7 @@ object TopX {
 
     /** TopX "fresh" art (poster + logo + genre + rating, no chart rank) for any TMDB title. */
     fun posterFor(isTv: Boolean, tmdbId: Int): String =
-        "$ART_BASE/${if (isTv) "series" else "movie"}/tmdb%3A$tmdbId.jpg?shape=poster&lang=it"
+        "$ART_BASE/${if (isTv) "series" else "movie"}/tmdb%3A$tmdbId.jpg?shape=poster&lang=it&year=1&yv=2"
 
     private const val ART_BASE = "https://topx.stremio-italia.eu/art/fresh"
 
