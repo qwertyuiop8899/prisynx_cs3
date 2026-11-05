@@ -55,7 +55,7 @@ jobs:
           import json
           plugins = json.load(open("../out/plugins.json"))
           center = [p for p in plugins if p["internalName"] in ("PriSynx", "RaiPlay", "PriSynxLive")]
-          single = [p for p in plugins if p["internalName"] != "PriSynx"]
+          single = [p for p in plugins if p["internalName"] not in ("PriSynx", "VavooLive")]
           json.dump(center, open("../out/plugins-center.json", "w"), indent=2, ensure_ascii=False)
           json.dump(single, open("../out/plugins-singoli.json", "w"), indent=2, ensure_ascii=False)
           PY
