@@ -8,7 +8,7 @@ val syncHubSources = tasks.register<Sync>("syncHubSources") {
     from(rootDir) {
         include("*/src/main/kotlin/**/*.kt")
         exclude("*/src/main/kotlin/**/*Plugin.kt")
-        exclude("PriSynx/**", "shared/**")
+        exclude("PriSynx/**", "PriSynxLive/**", "shared/**")
     }
     into(hubSourceDir)
 }

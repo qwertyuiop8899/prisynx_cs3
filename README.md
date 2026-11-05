@@ -20,6 +20,7 @@ Suite di plugin per **Nuvio** e **NuvioTV** per lo streaming in lingua italiana 
 | 🍰 | **Real Time** | Canale TV / Reality | 1080p · HLS | 🇮🇹 Audio ITA | Programmi Discovery Italia ufficiali (solo stagioni online) |
 | 🏛️ | **RaiPlay** | Fiction, Film & Doc | 1080p · HLS | 🇮🇹 Audio ITA | Catalogo RaiPlay ufficiale in alta definizione (DRM-free) |
 | 📺 | **Vavoo Live** | TV in diretta | HLS | 🇮🇹 Italia (+ altre nazioni nel hub) | Canali TV live Vavoo con copertine TvVoo, più sorgenti per canale |
+| **PriSynx Live** | Addon separato (non dentro PriSynx): TV Vavoo (nazioni selezionabili, EPG Italia) + eventi sportivi live **SportzX** (F1, MotoGP, calcio UEFA, NBA, NHL, UFC...). ClearKey DASH decifrato dal player, pagine embed WASM escluse. Impostazioni: nazioni, sport, solo live, canali DRM |
 | 🌸 | **AnimeWorld** | Anime | 1080p / 720p · MP4 | 🇮🇹 Doppiato + 🇯🇵 SUB-ITA | Link MP4 diretti veloci con mapping automatico |
 | 🦊 | **AnimeSaturn** | Anime | 1080p / 720p · HLS / MP4 | 🇮🇹 Doppiato + 🇯🇵 SUB-ITA | StreamPeaker HLS/MP4 con mapping automatico |
 | 🏮 | **AnimeUnity** | Anime | 1080p / 720p · HLS | 🇮🇹 Doppiato + 🇯🇵 SUB-ITA | Server VixCloud con bitrate elevato (ITA e SUB) |
