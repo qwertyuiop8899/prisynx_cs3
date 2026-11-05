@@ -145,10 +145,9 @@ class PriSynxProvider : TmdbProvider("PriSynx", "https://www.themoviedb.org") {
     override suspend fun load(url: String): LoadResponse {
         val ref = MediaRef.parse(url)
         if (ref != null) {
-            // TopX portrait cover and clean landscape backdrop for all TMDB titles.
+            // TopX portrait cover for TMDB titles; backdrop is left pure TMDB without overlays.
             return super.load(url).apply {
                 posterUrl = TopX.posterFor(ref.isTv, ref.id)
-                backgroundPosterUrl = TopX.backdropFor(ref.isTv, ref.id)
             }
         }
         if (KitsuRef.parse(url) != null) return super.load(url)
