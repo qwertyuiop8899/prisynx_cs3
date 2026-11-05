@@ -19,8 +19,8 @@ Suite di plugin per **Nuvio** e **NuvioTV** per lo streaming in lingua italiana 
 | 🎨 | **Toonitalia** | Cartoni & Serie TV | 1080p / 720p · HLS / MP4 | 🇮🇹 Audio ITA + Sub-ITA | Cartoni animati, serie vintage e anime (VOE, Uqload) |
 | 🍰 | **Real Time** | Canale TV / Reality | 1080p · HLS | 🇮🇹 Audio ITA | Programmi Discovery Italia ufficiali (solo stagioni online) |
 | 🏛️ | **RaiPlay** | Fiction, Film & Doc | 1080p · HLS | 🇮🇹 Audio ITA | Catalogo RaiPlay ufficiale in alta definizione (DRM-free) |
-| 📺 | **Vavoo Live** | TV in diretta | HLS | 🇮🇹 Italia (+ altre nazioni nel hub) | Canali TV live Vavoo con copertine TvVoo, più sorgenti per canale |
-| **PriSynx Live** | Addon separato (non dentro PriSynx): TV Vavoo (nazioni selezionabili, EPG Italia) + eventi sportivi live **SportzX** (F1, MotoGP, calcio UEFA, NBA, NHL, UFC...). ClearKey DASH decifrato dal player, pagine embed WASM escluse. Impostazioni: nazioni, sport, solo live, canali DRM |
+| 📺 | **Vavoo Live** | TV in diretta | HLS | 🇮🇹 Italia (+ altre nazioni in PriSynx Live) | Canali TV live Vavoo con copertine TvVoo, più sorgenti per canale |
+| 🏟️ | **PriSynx Live** | TV + sport live | HLS / DASH | 🌍 | Addon separato (Vavoo non è più dentro PriSynx): TV Vavoo (nazioni selezionabili, EPG Italia) + eventi sportivi live **SportzX** (F1, MotoGP, calcio UEFA, NBA, NHL, UFC...). ClearKey DASH decifrato dal player, pagine embed WASM escluse. Impostazioni: nazioni, sport, solo live, canali DRM |
 | 🌸 | **AnimeWorld** | Anime | 1080p / 720p · MP4 | 🇮🇹 Doppiato + 🇯🇵 SUB-ITA | Link MP4 diretti veloci con mapping automatico |
 | 🦊 | **AnimeSaturn** | Anime | 1080p / 720p · HLS / MP4 | 🇮🇹 Doppiato + 🇯🇵 SUB-ITA | StreamPeaker HLS/MP4 con mapping automatico |
 | 🏮 | **AnimeUnity** | Anime | 1080p / 720p · HLS | 🇮🇹 Doppiato + 🇯🇵 SUB-ITA | Server VixCloud con bitrate elevato (ITA e SUB) |
@@ -132,7 +132,6 @@ Dal pulsante ⚙️ dell'estensione (*Impostazioni → Estensioni → PriSynx*) 
 | **Anime** | Anime dal catalogo **Kitsu** (righe in home: tendenza, in corso, più popolari, più votati; risultati nella ricerca) e opzione per nascondere gli anime giapponesi da TMDB |
 | **RaiPlay** | Righe RaiPlay in home e risultati RaiPlay nella ricerca (ON/OFF), scelta delle singole righe RaiPlay |
 | **KissKH** | Righe KissKH in home e risultati KissKH nella ricerca (ON/OFF), scelta dei cataloghi (drama/film coreani, giapponesi, thailandesi, anime) e impostazioni KissKH (URL, chiave DeepL, lingua di traduzione, filtro adulti) |
-| **TV** | Righe TV in home e canali nella ricerca (ON/OFF) e **scelta delle nazioni** Vavoo: Italia (attiva di default), Germania, Francia, Spagna, Regno Unito, Portogallo, Paesi Bassi, Turchia, Albania, Polonia, Balcani, Croazia, Romania, Bulgaria, Russia, Arabia. Ogni canale raggruppa le sue sorgenti (`.s` prima, più affidabili): se una non parte prova la successiva. Per i canali italiani la pagina del canale mostra **Ora in onda / A seguire** dall'EPG XMLTV (scaricato compresso, aggiornato ogni ora; nessun server) |
 | **Debrid** | Sblocco dei magnet di **IlCorsaroViola** in link diretti con **Real-Debrid**, **AllDebrid** o **TorBox**: scelta del servizio, chiave API (con verifica dell'account), ON/OFF e **attesa massima** del download (0/20/40/60/90/120 s) |
 | **Altro** | **Sincronizzazione Cloud E2EE (PriSynx Vault)** con PIN a 6 cifre, numero massimo di torrent IlCorsaroViola, **Movy/DualSync: solo link sincronizzati**, ripristino impostazioni |
 

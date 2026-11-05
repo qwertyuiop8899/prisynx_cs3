@@ -15,7 +15,6 @@ import prisynx.providers.EurostreamingProvider
 import prisynx.providers.FilmezProvider
 import prisynx.providers.GuardoserieProvider
 import prisynx.providers.KissKHProvider
-import prisynx.vavoo.VavooOptions
 import prisynx.providers.MovyitaProvider
 import prisynx.providers.OnlineSerieTvProvider
 import prisynx.providers.PaCCProvider
@@ -78,7 +77,6 @@ object HubSettings {
         DebridSettings.attach(context)
         ProviderOptions.torrentMaxResults = torrentMax
         ProviderOptions.syncedOnly = syncedOnly
-        syncTvCountries()
     }
 
     private fun bool(key: String, def: Boolean) = prefs?.getBoolean(key, def) ?: def
@@ -204,27 +202,6 @@ object HubSettings {
     fun isKisskhRowEnabled(id: String) = bool("kisskh_row_$id", true)
     fun setKisskhRowEnabled(id: String, on: Boolean) = setBool("kisskh_row_$id", on)
 
-    // ------------------------------------------------------------ TV (Vavoo)
-
-    var tvHome: Boolean
-        get() = bool("tv_home", true)
-        set(value) = setBool("tv_home", value)
-
-    var tvSearch: Boolean
-        get() = bool("tv_search", true)
-        set(value) = setBool("tv_search", value)
-
-    /** Only Italy is on by default. */
-    fun isTvCountryEnabled(group: String) = bool("tv_country_$group", group == "Italy")
-
-    fun setTvCountryEnabled(group: String, on: Boolean) {
-        setBool("tv_country_$group", on)
-        syncTvCountries()
-    }
-
-    private fun syncTvCountries() {
-        VavooOptions.enabled = VavooOptions.countries.map { it.group }.filter { isTvCountryEnabled(it) }.toSet()
-    }
 
     // ------------------------------------------------------------ Anime (Kitsu)
 
@@ -251,8 +228,7 @@ object HubSettings {
         "tmdb" to "Cataloghi TMDB",
         "kitsu" to "Anime (Kitsu)",
         "rai" to "RaiPlay",
-        "kisskh" to "KissKH",
-        "tv" to "TV in diretta (Vavoo)"
+        "kisskh" to "KissKH"
     )
 
     fun homeOrder(): List<String> {
@@ -260,9 +236,9 @@ object HubSettings {
         val saved = prefs?.getString("home_order", null)
             ?.split(',')?.filter { it in ids }?.distinct() ?: emptyList()
         val fallback = if (topxFirst) {
-            listOf("topx", "tmdb", "kitsu", "rai", "kisskh", "tv")
+            listOf("topx", "tmdb", "kitsu", "rai", "kisskh")
         } else {
-            listOf("tmdb", "topx", "kitsu", "rai", "kisskh", "tv")
+            listOf("tmdb", "topx", "kitsu", "rai", "kisskh")
         }
         return saved + fallback.filter { it !in saved }
     }
@@ -275,7 +251,6 @@ object HubSettings {
         prefs?.edit()?.clear()?.apply()
         ProviderOptions.torrentMaxResults = ProviderOptions.DEFAULT_TORRENT_MAX
         ProviderOptions.syncedOnly = true
-        VavooOptions.enabled = setOf("Italy")
         DebridSettings.reset()
     }
 }

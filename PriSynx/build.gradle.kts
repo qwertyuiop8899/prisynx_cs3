@@ -8,7 +8,7 @@ val syncHubSources = tasks.register<Sync>("syncHubSources") {
     from(rootDir) {
         include("*/src/main/kotlin/**/*.kt")
         exclude("*/src/main/kotlin/**/*Plugin.kt")
-        exclude("PriSynx/**", "PriSynxLive/**", "shared/**")
+        exclude("PriSynx/**", "PriSynxLive/**", "VavooLive/**", "shared/**")
     }
     into(hubSourceDir)
 }
@@ -20,10 +20,10 @@ android {
 
 tasks.named("preBuild").configure { dependsOn(syncHubSources) }
 
-version = 25
+version = 26
 
 cloudstream {
-    description = "PriSynx: tutte le sorgenti in un'unica estensione (RaiPlay, KissKH e TV in diretta Vavoo inclusi), con menu TV per scegliere provider, ordine, cataloghi TMDB, TopX, anime, RaiPlay, KissKH, nazioni TV e servizi debrid (con attesa del download) per IlCorsaroViola."
+    description = "PriSynx: tutte le sorgenti in un'unica estensione (RaiPlay e KissKH inclusi), con menu TV per scegliere provider, ordine, cataloghi TMDB, TopX, anime, RaiPlay, KissKH, servizi debrid (con attesa del download) per IlCorsaroViola."
     authors = listOf("PriSynx")
     status = 1
     tvTypes = listOf("Movie", "TvSeries", "Anime", "AsianDrama", "Live")
