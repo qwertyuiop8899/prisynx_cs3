@@ -79,7 +79,9 @@ class VavooProvider : MainAPI() {
 
     data class Mirror(val name: String, val url: String)
     data class Channel(val country: String, val name: String, val logo: String, val mirrors: List<Mirror>) {
-        val ref: String get() = "$SCHEME$country/" + URLEncoder.encode(name, "UTF-8")
+        /** Stable id: the Vavoo id of the first mirror (hex, URL safe). */
+        val id: String get() = mirrors.first().url.substringAfterLast('/')
+        val ref: String get() = "$SCHEME$country/$id"
     }
 
     companion object {
@@ -109,9 +111,19 @@ class VavooProvider : MainAPI() {
         private var covers: Pair<Map<String, String>, Map<String, String>>? = null
         private val channels = HashMap<String, Pair<Long, List<Channel>>>()
 
-        private val SUFFIX = Regex("\\s*\\.[a-z]{1,2}$", RegexOption.IGNORE_CASE)
+        private val SUFFIX = Regex("\\s*(\\.[a-z0-9]{1,3})+$", RegexOption.IGNORE_CASE)
+        private val PAREN = Regex("\\s*\\((?:\\d+|[A-Za-z]{1,3})\\)\\s*$")
 
-        fun isVavooUrl(url: String) = url.startsWith(SCHEME)
+        /** CloudStream may prefix the card url with mainUrl: accept the scheme anywhere. */
+        fun isVavooUrl(url: String) = url.contains(SCHEME)
+
+        private fun refOf(url: String): Pair<String, String>? {
+            if (!isVavooUrl(url)) return null
+            val rest = url.substringAfter(SCHEME)
+            val country = URLDecoder.decode(rest.substringBefore('/'), "UTF-8")
+            val id = URLDecoder.decode(rest.substringAfter('/', ""), "UTF-8")
+            return if (country.isBlank() || id.isBlank()) null else country to id
+        }
 
         fun clearCache() {
             synchronized(channels) { channels.clear() }
@@ -239,16 +251,40 @@ class VavooProvider : MainAPI() {
         }
     }
 
-    private fun slug(name: String) = name.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+    private fun cleanup(name: String) = PAREN.replace(SUFFIX.replace(name, ""), "").trim()
 
-    private fun coverOf(name: String, country: String, native: String?, maps: Pair<Map<String, String>, Map<String, String>>): String {
-        val map = if (country == "Italy") maps.first else maps.second
-        val s = slug(name)
-        map[s]?.let { return it }
-        val stripped = s.replace(Regex("-(d|mpd|fhd|hd|sd|c|s|b)$"), "")
-        map[stripped]?.let { return it }
-        if (country == "Italy") maps.second[s]?.let { return it }
-        return native?.takeIf { it.isNotBlank() } ?: FALLBACK_LOGO
+    /** Same key normalisation as TvVoo. */
+    private fun normalize(name: String) = name.lowercase().trim()
+        .replace("&", " and ")
+        .replace(Regex("\\s+"), "-")
+        .replace(Regex("[^a-z0-9\\-]"), "")
+        .replace(Regex("-+"), "-")
+        .trim('-')
+
+    private fun findCover(map: Map<String, String>, name: String): String? {
+        val keys = listOf(normalize(name), normalize(cleanup(name))).filter { it.isNotBlank() }.distinct()
+        keys.forEach { k -> map[k]?.let { return it } }
+        val suffixes = listOf("-1", "-2", "-3", "-d", "-mpd", "-backup")
+        keys.forEach { k -> suffixes.forEach { sfx -> map[k + sfx]?.let { return it } } }
+        keys.forEach { k ->
+            val prefix = "$k-"
+            map.entries.firstOrNull { it.key.startsWith(prefix) }?.let { return it.value }
+        }
+        return null
+    }
+
+    /** TvVoo-style placeholder: channel name on the PriSynx purple background. */
+    private fun placeholder(name: String): String {
+        val text = cleanup(name).replace(Regex("\\s+"), " ").trim().uppercase().ifBlank { "TV" }
+            .split(' ').joinToString("\\n")
+        return "https://placehold.co/400x600/12052b/00FFD1.png?font=montserrat&text=" + URLEncoder.encode(text, "UTF-8")
+    }
+
+    private fun coverOf(names: List<String>, country: String, maps: Pair<Map<String, String>, Map<String, String>>): String {
+        val primary = if (country == "Italy") maps.first else maps.second
+        names.forEach { n -> findCover(primary, n)?.let { return it } }
+        if (country == "Italy") names.forEach { n -> findCover(maps.second, n)?.let { return it } }
+        return placeholder(names.first())
     }
 
     // ------------------------------------------------------------ catalog
@@ -287,12 +323,12 @@ class VavooProvider : MainAPI() {
             cursor = tree.path("nextCursor").takeIf { it.isNumber }?.asInt()
             pages++
         }
-        val list = raw.groupBy { SUFFIX.replace(it.first, "").trim().ifBlank { it.first } }
+        val list = raw.groupBy { cleanup(it.first).ifBlank { it.first } }
             .map { (base, items) ->
                 val mirrors = items
                     .sortedBy { mirrorRank(it.first) }
                     .map { Mirror(it.first, it.second) }
-                Channel(country, base, coverOf(items.first().first, country, items.first().third, maps), mirrors)
+                Channel(country, base, coverOf(items.map { it.first }, country, maps), mirrors)
             }
             .sortedBy { it.name.lowercase() }
         if (list.isNotEmpty()) synchronized(channels) { channels[country] = now to list }
@@ -311,7 +347,7 @@ class VavooProvider : MainAPI() {
     }
 
     private suspend fun card(ch: Channel): SearchResponse =
-        newLiveSearchResponse(ch.name, ch.ref, TvType.Live) { posterUrl = ch.logo }
+        newLiveSearchResponse(ch.name, ch.ref, TvType.Live, fix = false) { posterUrl = ch.logo }
 
     /** Home rows of one country, split by category. */
     suspend fun countryRows(country: String): List<HomePageList> {
@@ -353,17 +389,18 @@ class VavooProvider : MainAPI() {
     }
 
     private suspend fun channelOf(url: String): Channel? {
-        if (!isVavooUrl(url)) return null
-        val country = url.removePrefix(SCHEME).substringBefore('/')
-        val name = URLDecoder.decode(url.removePrefix(SCHEME).substringAfter('/'), "UTF-8")
-        return channels(country).firstOrNull { it.name == name }
+        val (country, id) = refOf(url) ?: return null
+        val list = channels(country)
+        return list.firstOrNull { ch -> ch.mirrors.any { it.url.substringAfterLast('/') == id } }
+            ?: list.firstOrNull { it.name == id }
     }
 
     override suspend fun load(url: String): LoadResponse {
         val ch = channelOf(url)
-        val country = url.removePrefix(SCHEME).substringBefore('/')
-        val title = ch?.name ?: URLDecoder.decode(url.substringAfterLast('/'), "UTF-8")
-        return newLiveStreamLoadResponse(title, url, url) {
+        val country = refOf(url)?.first ?: "Italy"
+        val title = ch?.name ?: "Canale non trovato"
+        val ref = ch?.ref ?: url
+        return newLiveStreamLoadResponse(title, ref, ref) {
             posterUrl = ch?.logo ?: FALLBACK_LOGO
             plot = "Canale TV in diretta (Vavoo · ${VavooOptions.labelOf(country)}). " +
                 "${ch?.mirrors?.size ?: 0} sorgenti disponibili: se una non parte prova la successiva."
