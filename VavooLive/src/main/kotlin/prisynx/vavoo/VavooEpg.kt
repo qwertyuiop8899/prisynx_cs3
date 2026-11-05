@@ -162,10 +162,10 @@ object VavooEpg {
         val sb = StringBuilder()
         if (current != null) {
             sb.append("🔴 Ora in onda (${clock(current.start)}–${clock(current.stop)}): ${current.title}")
-            current.desc?.let { sb.append("\n").append(it.take(300)) }
+            current.desc?.let { sb.append("<br>").append(it.take(300)) }
         }
         if (next != null) {
-            if (sb.isNotEmpty()) sb.append("\n\n")
+            if (sb.isNotEmpty()) sb.append("<br><br>━━━━━━━━━━<br><br>")
             sb.append("⏭ A seguire (${clock(next.start)}): ${next.title}")
         }
         return sb.toString().ifBlank { null }
