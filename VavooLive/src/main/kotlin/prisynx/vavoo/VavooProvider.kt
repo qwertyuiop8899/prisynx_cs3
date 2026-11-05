@@ -100,7 +100,7 @@ class VavooProvider : MainAPI() {
         private const val STREAM_UA = "VAVOO/2.6"
 
         private const val CHANNELS_TTL = 60 * 60_000L
-        private const val SIG_TTL = 60 * 60_000L
+        private const val SIG_TTL = 10 * 60_000L
 
         private val mapper: ObjectMapper = ObjectMapper()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
@@ -351,6 +351,7 @@ class VavooProvider : MainAPI() {
 
     /** Home rows of one country, split by category. */
     suspend fun countryRows(country: String): List<HomePageList> {
+        if (country == "Italy") VavooEpg.warmUp()
         val list = channels(country)
         if (list.isEmpty()) return emptyList()
         val label = VavooOptions.labelOf(country)
@@ -400,9 +401,10 @@ class VavooProvider : MainAPI() {
         val country = refOf(url)?.first ?: "Italy"
         val title = ch?.name ?: "Canale non trovato"
         val ref = ch?.ref ?: url
+        val epg = if (country == "Italy" && ch != null && kotlinx.coroutines.withTimeoutOrNull(15_000L) { VavooEpg.ensure() } == true) VavooEpg.describe(ch.name) else null
         return newLiveStreamLoadResponse(title, ref, ref) {
             posterUrl = ch?.logo ?: FALLBACK_LOGO
-            plot = "Canale TV in diretta (Vavoo · ${VavooOptions.labelOf(country)}). " +
+            plot = (epg?.let { it + "\n\n" } ?: "") + "Canale TV in diretta (Vavoo · ${VavooOptions.labelOf(country)}). " +
                 "${ch?.mirrors?.size ?: 0} sorgenti disponibili: se una non parte prova la successiva."
             tags = listOf("Live", "Vavoo", VavooOptions.labelOf(country))
         }
