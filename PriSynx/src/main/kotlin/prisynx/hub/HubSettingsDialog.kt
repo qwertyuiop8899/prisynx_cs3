@@ -48,7 +48,7 @@ object HubSettingsDialog {
     private const val ON = 0xFF8B5CF6.toInt()
     private const val OFF = 0xFF3A3347.toInt()
 
-    private val tabs = listOf("Provider", "Home", "TopX", "Anime", "KissKH", "RaiPlay", "Debrid", "Altro")
+    private val tabs = listOf("Provider", "Home", "TopX", "Anime", "KissKH", "RaiPlay", "TV", "Debrid", "Altro")
 
     private class Ui(val context: Context, val content: LinearLayout, val scroll: ScrollView) {
         val tabViews = mutableListOf<TextView>()
@@ -169,7 +169,8 @@ object HubSettingsDialog {
             3 -> animeTab(ui)
             4 -> kisskhTab(ui)
             5 -> raiTab(ui)
-            6 -> debridTab(ui)
+            6 -> tvTab(ui)
+            7 -> debridTab(ui)
             else -> otherTab(ui)
         }
         ui.scroll.scrollTo(0, 0)
@@ -474,6 +475,34 @@ object HubSettingsDialog {
         }, rowParams(c))
     }
 
+    // ------------------------------------------------------------ TV (Vavoo)
+
+    private fun tvTab(ui: Ui) {
+        val c = ui.context
+        heading(ui, "TV in diretta",
+            "Canali Vavoo con copertine TvVoo. Ogni canale ha più sorgenti: se una non parte prova la successiva.")
+        ui.content.addView(toggleRow(c, "Righe TV in home", null,
+            get = { HubSettings.tvHome },
+            set = { HubSettings.tvHome = it }
+        ), rowParams(c))
+        ui.content.addView(toggleRow(c, "Canali TV nella ricerca", null,
+            get = { HubSettings.tvSearch },
+            set = { HubSettings.tvSearch = it }
+        ), rowParams(c))
+
+        heading(ui, "Nazioni", "Scegli quali nazioni mostrare (di default solo Italia).")
+        prisynx.vavoo.VavooOptions.countries.forEach { country ->
+            ui.content.addView(toggleRow(c, country.label, null,
+                get = { HubSettings.isTvCountryEnabled(country.group) },
+                set = { HubSettings.setTvCountryEnabled(country.group, it) }
+            ), rowParams(c))
+        }
+        ui.content.addView(actionRow(c, "Ricarica canali", null) {
+            VavooHub.clearCache()
+            toast(c, "Canali TV ricaricati alla prossima apertura della home")
+        }, rowParams(c))
+    }
+
     // ------------------------------------------------------------ RaiPlay
 
     private fun raiTab(ui: Ui) {
@@ -658,7 +687,7 @@ object HubSettingsDialog {
 
         heading(ui, "Ripristino", null)
         ui.content.addView(actionRow(c, "Ripristina impostazioni predefinite",
-            "Provider, ordine, cataloghi, TopX, anime, RaiPlay, KissKH e debrid") {
+            "Provider, ordine, cataloghi, TopX, anime, RaiPlay, KissKH, TV e debrid") {
             AlertDialog.Builder(c)
                 .setTitle("Ripristinare tutto?")
                 .setMessage("Tutte le impostazioni di PriSynx torneranno ai valori predefiniti.")
