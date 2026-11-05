@@ -6,6 +6,7 @@ import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.MainPageRequest
+import com.lagradost.cloudstream3.Prerelease
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
@@ -29,7 +30,7 @@ import java.util.TimeZone
  * SportzX live sports: one card per event, every broadcaster of the event is a link.
  * ClearKey DASH is decrypted by ExoPlayer itself; WASM-gated embed pages are skipped.
  */
-@OptIn(kotlin.uuid.ExperimentalUuidApi::class)
+@OptIn(kotlin.uuid.ExperimentalUuidApi::class, Prerelease::class)
 class SportzXProvider : MainAPI() {
     override var mainUrl = "https://es.bandspx.com"
     override var name = "SportzX Live"

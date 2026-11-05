@@ -2,7 +2,8 @@ package prisynx.live
 
 import android.util.Base64
 import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.utils.AppUtils.parseJson
+import com.fasterxml.jackson.databind.DeserializationFeature
+import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.annotation.JsonProperty
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -99,21 +100,25 @@ object SportzXEngine {
         return String(body, Charsets.UTF_8)
     }
 
-    private data class Envelope(@JsonProperty("data") val data: String? = null)
+    private val mapper: ObjectMapper = ObjectMapper()
+        .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+
+    private fun <T> parseList(json: String, cls: Class<T>): List<T> =
+        mapper.readValue(json, mapper.typeFactory.constructCollectionType(List::class.java, cls))
 
     private suspend fun fetchDecrypted(path: String): String? {
         val text = app.get(
             "$BASE/$path",
             headers = mapOf("User-Agent" to UA, "Accept" to "application/json,*/*")
         ).text
-        val data = parseJson<Envelope>(text).data ?: return null
+        val data = mapper.readTree(text).path("data").asText("").ifBlank { null } ?: return null
         return decryptPayload(data)
     }
 
     suspend fun fetchEvents(): List<SportzEvent> {
         val json = fetchDecrypted("events.json") ?: return emptyList()
         val now = System.currentTimeMillis()
-        return parseJson<List<RawEvent>>(json).mapNotNull { raw ->
+        return parseList(json, RawEvent::class.java).mapNotNull { raw ->
             val id = raw.id?.toString() ?: return@mapNotNull null
             val info = raw.eventInfo
             val start = parseDate(info?.startTime)
@@ -138,7 +143,7 @@ object SportzXEngine {
 
     suspend fun fetchChannels(eventId: String): List<SportzChannel> {
         val json = fetchDecrypted("channels/$eventId.json") ?: return emptyList()
-        return parseJson(json)
+        return parseList(json, SportzChannel::class.java)
     }
 
     private fun parseDate(s: String?): Long? {
