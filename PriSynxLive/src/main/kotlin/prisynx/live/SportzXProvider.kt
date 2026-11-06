@@ -59,7 +59,10 @@ class SportzXProvider : MainAPI() {
             val now = System.currentTimeMillis()
             if (cache.isNotEmpty() && now - cacheAt < 90_000) return cache
             val list = SportzXEngine.fetchEvents()
-            if (list.isNotEmpty()) { cache = list; cacheAt = now }
+            if (list.isNotEmpty()) {
+                cache = list; cacheAt = now
+                LiveSettings.rememberSports(list.map { it.category }.toSet())
+            }
             return list.ifEmpty { cache }
         }
 
