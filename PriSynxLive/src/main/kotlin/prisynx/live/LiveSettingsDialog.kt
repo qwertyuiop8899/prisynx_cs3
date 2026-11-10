@@ -5,9 +5,7 @@ import android.content.Context
 import android.text.InputType
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.Toast
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
-import com.lagradost.cloudstream3.utils.Coroutines.main
 import prisynx.vavoo.VavooOptions
 
 /** Native list dialogs only: fully usable with a TV remote. */
@@ -20,7 +18,7 @@ object LiveSettingsDialog {
             "⚽ Partite.cc: sezioni",
             "🏆 Partite.cc: campionati",
             "📺 Partite.cc: canali TV",
-            "🔑 Partite.cc: account"
+            "🔑 Partite.cc: account (solo per In diretta)"
         )
         AlertDialog.Builder(ctx)
             .setTitle("PriSynx Live")
@@ -30,8 +28,8 @@ object LiveSettingsDialog {
                     1 -> sports(ctx)
                     2 -> options(ctx)
                     3 -> paSections(ctx)
-                    4 -> loading(ctx, { PartiteEngine.fetchLeagueCatalog() }) { leagueGroups(ctx, it) }
-                    5 -> loading(ctx, { PartiteEngine.fetchChannelCatalog() }) { channelGroups(ctx, it) }
+                    4 -> leagueGroups(ctx, PartiteCatalog.leagues)
+                    5 -> channelGroups(ctx, PartiteCatalog.channels)
                     6 -> account(ctx)
                 }
             }
@@ -78,17 +76,6 @@ object LiveSettingsDialog {
             }
             .setPositiveButton("OK") { _, _ -> show(ctx) }
             .show()
-    }
-
-    private fun <T> loading(ctx: Context, fetch: suspend () -> List<T>, then: (List<T>) -> Unit) {
-        Toast.makeText(ctx, "Caricamento da Partite.cc…", Toast.LENGTH_SHORT).show()
-        ioSafe {
-            val list = runCatching { fetch() }.getOrDefault(emptyList())
-            main {
-                if (list.isEmpty()) Toast.makeText(ctx, "Partite.cc non raggiungibile o login fallito", Toast.LENGTH_LONG).show()
-                else then(list)
-            }
-        }
     }
 
     private fun paSections(ctx: Context) {

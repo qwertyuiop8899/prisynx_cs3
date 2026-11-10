@@ -75,8 +75,7 @@ class SportzXProvider : MainAPI() {
         LiveSettings.isSportEnabled(it.category) && (!LiveSettings.sportOnlyLive || it.isLive)
     }
 
-    private fun poster(ev: SportzXEngine.SportzEvent) =
-        Posters.match(ev.teams.getOrNull(0), ev.teams.getOrNull(1), ev.title, ev.category)
+    private fun poster(ev: SportzXEngine.SportzEvent) = ev.image ?: FALLBACK_POSTER
 
     private fun card(ev: SportzXEngine.SportzEvent): SearchResponse {
         val label = if (ev.isLive) "🔴 ${ev.title}" else "${fmt("dd/MM HH:mm", ev.start)} · ${ev.title}"
@@ -89,11 +88,11 @@ class SportzXProvider : MainAPI() {
         val evs = visible(events())
         val rows = mutableListOf<HomePageList>()
         evs.filter { it.isLive }.takeIf { it.isNotEmpty() }?.let {
-            rows += HomePageList("🔴 Sport in diretta", it.map(::card), true)
+            rows += HomePageList("🔴 Sport in diretta", it.map(::card), false)
         }
         evs.groupBy { it.category }.entries
             .sortedByDescending { e -> e.value.size }
-            .forEach { (cat, list) -> rows += HomePageList("🏆 $cat", list.map(::card), true) }
+            .forEach { (cat, list) -> rows += HomePageList("🏆 $cat", list.map(::card), false) }
         return newHomePageResponse(rows, false)
     }
 

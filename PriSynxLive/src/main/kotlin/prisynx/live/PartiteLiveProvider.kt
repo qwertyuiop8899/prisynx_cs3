@@ -26,8 +26,7 @@ class PartiteLiveProvider : MainAPI() {
     override val hasDownloadSupport = false
     override val vpnStatus = VPNStatus.None
 
-    private fun poster(ev: PartiteEngine.PartiteEvent) =
-        Posters.match(ev.homeName, ev.awayName, ev.title, if (ev.isLive) "LIVE" else "${ev.date} ${ev.time}".trim())
+    private fun poster(ev: PartiteEngine.PartiteEvent) = ev.homeLogo ?: ev.awayLogo ?: FALLBACK_POSTER
 
     private fun card(ev: PartiteEngine.PartiteEvent): SearchResponse {
         val label = if (ev.isLive) "🔴 ${ev.title}" else "${ev.date} ${ev.time} · ${ev.title}".trim()
@@ -36,7 +35,7 @@ class PartiteLiveProvider : MainAPI() {
 
     private fun channelCard(c: PartiteEngine.ChannelInfo): SearchResponse =
         newLiveSearchResponse(c.name, "$mainUrl/tv-calcio-live/${c.slug}", TvType.Live, false) {
-            posterUrl = Posters.portrait(c.name, c.country)
+            posterUrl = c.logo ?: FALLBACK_POSTER
         }
 
     private fun emoji(sport: String) = when (sport.lowercase()) {
@@ -52,28 +51,28 @@ class PartiteLiveProvider : MainAPI() {
             val home = PartiteEngine.fetchEvents()
             if (LiveSettings.paLive) {
                 val live = (PartiteEngine.fetchLiveSports() + home).filter { it.isLive }.distinctBy { it.id }
-                if (live.isNotEmpty()) rows += HomePageList("🔴 In diretta ora", live.map(::card), true)
+                if (live.isNotEmpty()) rows += HomePageList("🔴 In diretta ora", live.map(::card), false)
             }
             if (LiveSettings.paToday) {
                 home.filter { !it.isLive }.groupBy { it.sport }.entries
                     .sortedByDescending { if (it.key.equals("Calcio", true)) 10000 else it.value.size }
-                    .forEach { (sport, evs) -> rows += HomePageList("${emoji(sport)} $sport · in programma", evs.map(::card), true) }
+                    .forEach { (sport, evs) -> rows += HomePageList("${emoji(sport)} $sport · in programma", evs.map(::card), false) }
             }
         }
 
         if (LiveSettings.paLeagues) {
-            val names = PartiteEngine.fetchLeagueCatalog().associate { it.key to it.name }
+            val names = PartiteEngine.leagueCatalog().associate { it.key to it.name }
             for (key in LiveSettings.selectedLeagues().sortedBy { names[it] ?: it }) {
                 val (title, evs) = PartiteEngine.fetchLeague(key)
-                if (evs.isNotEmpty()) rows += HomePageList("🏆 $title", evs.map(::card), true)
+                if (evs.isNotEmpty()) rows += HomePageList("🏆 $title", evs.map(::card), false)
             }
         }
 
         if (LiveSettings.paChannels) {
-            PartiteEngine.fetchChannelCatalog()
+            PartiteCatalog.channels
                 .filter { LiveSettings.channelSelected(it.slug, it.country) }
                 .groupBy { it.country }
-                .forEach { (country, list) -> rows += HomePageList("📺 Canali $country", list.map(::channelCard), true) }
+                .forEach { (country, list) -> rows += HomePageList("📺 Canali $country", list.map(::channelCard), false) }
         }
 
         return newHomePageResponse(rows, false)
@@ -82,7 +81,7 @@ class PartiteLiveProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         val q = query.trim().lowercase()
         if (q.isEmpty()) return emptyList()
-        val chans = PartiteEngine.fetchChannelCatalog().filter { it.name.lowercase().contains(q) }.map(::channelCard)
+        val chans = PartiteCatalog.channels.filter { it.name.lowercase().contains(q) }.map(::channelCard)
         val evs = (PartiteEngine.fetchLiveSports() + PartiteEngine.fetchEvents() +
             LiveSettings.selectedLeagues().flatMap { PartiteEngine.fetchLeague(it).second }).distinctBy { it.id }
         return chans + evs.filter { ev ->
@@ -98,10 +97,10 @@ class PartiteLiveProvider : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse {
         slugOf(url)?.let { slug ->
-            val c = PartiteEngine.fetchChannelCatalog().find { it.slug == slug }
+            val c = PartiteCatalog.channels.find { it.slug == slug }
             val name = c?.name ?: slug
             return newLiveStreamLoadResponse(name, url, url) {
-                posterUrl = Posters.portrait(name, c?.country)
+                posterUrl = c?.logo ?: FALLBACK_POSTER
                 backgroundPosterUrl = c?.logo
                 plot = "📺 Canale TV ${c?.country.orEmpty()} in diretta 24/7 da Partite.cc"
                 tags = listOfNotNull("Live", "TV", c?.country)

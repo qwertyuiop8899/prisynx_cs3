@@ -319,6 +319,8 @@ object PartiteEngine {
 
     @Volatile private var leagueCatalog: List<LeagueInfo> = emptyList()
 
+    fun leagueCatalog(): List<LeagueInfo> = PartiteCatalog.leagues
+
     suspend fun fetchLeagueCatalog(): List<LeagueInfo> {
         if (leagueCatalog.isNotEmpty()) return leagueCatalog
         val doc = Jsoup.parse(publicGet("/leagues") ?: return emptyList())
@@ -403,7 +405,7 @@ object PartiteEngine {
         return channelCatalog
     }
 
-    fun channelBySlug(slug: String) = channelCatalog.find { it.slug == slug }
+    fun channelBySlug(slug: String) = PartiteCatalog.channels.find { it.slug == slug }
 
     suspend fun fetchChannelConfig(slug: String): String? {
         val html = publicGet("/tv-calcio-live/$slug") ?: return null
