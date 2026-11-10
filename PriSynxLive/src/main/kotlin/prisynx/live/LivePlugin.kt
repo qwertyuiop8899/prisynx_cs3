@@ -11,6 +11,7 @@ class LivePlugin : Plugin() {
         LiveSettings.init(context)
         registerMainAPI(SportzXProvider())
         registerMainAPI(VavooProvider())
+        registerMainAPI(PartiteLiveProvider())
         openSettings = { ctx -> LiveSettingsDialog.show(ctx) }
     }
 }
