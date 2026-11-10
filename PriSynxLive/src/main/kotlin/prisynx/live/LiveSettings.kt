@@ -58,16 +58,6 @@ object LiveSettings {
         if (merged.size != old.size) p.edit().putStringSet("seen_sports", HashSet(merged)).apply()
     }
     // ── Partite.cc ──
-    var partiteUser: String
-        get() = prefs?.getString("pa_user", null) ?: "prisonmike"
-        set(v) { prefs?.edit()?.putString("pa_user", v)?.remove("pa_token")?.apply() }
-    var partitePass: String
-        get() = prefs?.getString("pa_pass", null) ?: "Rqk!Z!c3NeUMzvS"
-        set(v) { prefs?.edit()?.putString("pa_pass", v)?.remove("pa_token")?.apply() }
-    var partiteToken: String?
-        get() = prefs?.getString("pa_token", null)
-        set(v) { prefs?.edit()?.putString("pa_token", v)?.apply() }
-
     var paLive: Boolean
         get() = bool("pa_sec_live", true)
         set(v) = setBool("pa_sec_live", v)

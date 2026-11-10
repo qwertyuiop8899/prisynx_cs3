@@ -50,7 +50,7 @@ class PartiteLiveProvider : MainAPI() {
         if (LiveSettings.paLive || LiveSettings.paToday) {
             val home = PartiteEngine.fetchEvents()
             if (LiveSettings.paLive) {
-                val live = (PartiteEngine.fetchLiveSports() + home).filter { it.isLive }.distinctBy { it.id }
+                val live = home.filter { it.isLive }.distinctBy { it.id }
                 if (live.isNotEmpty()) rows += HomePageList("🔴 In diretta ora", live.map(::card), false)
             }
             if (LiveSettings.paToday) {
@@ -82,7 +82,7 @@ class PartiteLiveProvider : MainAPI() {
         val q = query.trim().lowercase()
         if (q.isEmpty()) return emptyList()
         val chans = PartiteCatalog.channels.filter { it.name.lowercase().contains(q) }.map(::channelCard)
-        val evs = (PartiteEngine.fetchLiveSports() + PartiteEngine.fetchEvents() +
+        val evs = (PartiteEngine.fetchEvents() +
             LiveSettings.selectedLeagues().flatMap { PartiteEngine.fetchLeague(it).second }).distinctBy { it.id }
         return chans + evs.filter { ev ->
             ev.title.lowercase().contains(q) ||

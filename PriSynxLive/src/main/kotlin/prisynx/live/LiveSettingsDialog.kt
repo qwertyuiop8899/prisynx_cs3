@@ -2,9 +2,6 @@ package prisynx.live
 
 import android.app.AlertDialog
 import android.content.Context
-import android.text.InputType
-import android.widget.EditText
-import android.widget.LinearLayout
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
 import prisynx.vavoo.VavooOptions
 
@@ -17,8 +14,7 @@ object LiveSettingsDialog {
             "⚙️ SportzX: opzioni",
             "⚽ Partite.cc: sezioni",
             "🏆 Partite.cc: campionati",
-            "📺 Partite.cc: canali TV",
-            "🔑 Partite.cc: account (solo per In diretta)"
+            "📺 Partite.cc: canali TV"
         )
         AlertDialog.Builder(ctx)
             .setTitle("PriSynx Live")
@@ -30,7 +26,6 @@ object LiveSettingsDialog {
                     3 -> paSections(ctx)
                     4 -> leagueGroups(ctx, PartiteCatalog.leagues)
                     5 -> channelGroups(ctx, PartiteCatalog.channels)
-                    6 -> account(ctx)
                 }
             }
             .setNegativeButton("Chiudi", null)
@@ -153,29 +148,6 @@ object LiveSettingsDialog {
                 LiveSettings.setChannel(all, list[i].slug, on)
             }
             .setPositiveButton("OK") { _, _ -> channelGroups(ctx, all) }
-            .show()
-    }
-
-    private fun account(ctx: Context) {
-        val user = EditText(ctx).apply { hint = "Username"; setText(LiveSettings.partiteUser) }
-        val pass = EditText(ctx).apply {
-            hint = "Password"; setText(LiveSettings.partitePass)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
-        val box = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(48, 16, 48, 0)
-            addView(user); addView(pass)
-        }
-        AlertDialog.Builder(ctx)
-            .setTitle("Account Partite.cc")
-            .setView(box)
-            .setPositiveButton("Salva") { _, _ ->
-                LiveSettings.partiteUser = user.text.toString().trim()
-                LiveSettings.partitePass = pass.text.toString()
-                show(ctx)
-            }
-            .setNegativeButton("Annulla") { _, _ -> show(ctx) }
             .show()
     }
 }
