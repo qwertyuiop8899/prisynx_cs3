@@ -57,4 +57,43 @@ object LiveSettings {
         val merged = old + cats.filter { c -> BASE_SPORTS.none { it.equals(c, true) } }
         if (merged.size != old.size) p.edit().putStringSet("seen_sports", HashSet(merged)).apply()
     }
+    // ── Partite.cc ──
+    var partiteUser: String
+        get() = prefs?.getString("pa_user", null) ?: "prisonmike"
+        set(v) { prefs?.edit()?.putString("pa_user", v)?.remove("pa_token")?.apply() }
+    var partitePass: String
+        get() = prefs?.getString("pa_pass", null) ?: "Rqk!Z!c3NeUMzvS"
+        set(v) { prefs?.edit()?.putString("pa_pass", v)?.remove("pa_token")?.apply() }
+    var partiteToken: String?
+        get() = prefs?.getString("pa_token", null)
+        set(v) { prefs?.edit()?.putString("pa_token", v)?.apply() }
+
+    var paLive: Boolean
+        get() = bool("pa_sec_live", true)
+        set(v) = setBool("pa_sec_live", v)
+    var paToday: Boolean
+        get() = bool("pa_sec_today", false)
+        set(v) = setBool("pa_sec_today", v)
+    var paLeagues: Boolean
+        get() = bool("pa_sec_leagues", true)
+        set(v) = setBool("pa_sec_leagues", v)
+    var paChannels: Boolean
+        get() = bool("pa_sec_channels", true)
+        set(v) = setBool("pa_sec_channels", v)
+
+    private fun strSet(key: String): Set<String>? = prefs?.getStringSet(key, null)
+    private fun putSet(key: String, v: Set<String>) { prefs?.edit()?.putStringSet(key, HashSet(v))?.apply() }
+
+    /** League paths like "italy/serie-a"; default only Serie A. */
+    fun leagueSelected(key: String) = (strSet("pa_leagues") ?: setOf("italy/serie-a")).contains(key)
+    fun selectedLeagues(): Set<String> = strSet("pa_leagues") ?: setOf("italy/serie-a")
+    fun setLeague(key: String, on: Boolean) = putSet("pa_leagues", selectedLeagues().let { if (on) it + key else it - key })
+
+    /** Channel slugs; when never configured every Italian channel is on. */
+    fun channelSelected(slug: String, country: String) =
+        strSet("pa_channels")?.contains(slug) ?: country.equals("Italia", true)
+    fun setChannel(all: List<PartiteEngine.ChannelInfo>, slug: String, on: Boolean) {
+        val cur = strSet("pa_channels") ?: all.filter { channelSelected(it.slug, it.country) }.map { it.slug }.toSet()
+        putSet("pa_channels", if (on) cur + slug else cur - slug)
+    }
 }

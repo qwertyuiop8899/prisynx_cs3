@@ -26,41 +26,55 @@ class PartiteLiveProvider : MainAPI() {
     override val hasDownloadSupport = false
     override val vpnStatus = VPNStatus.None
 
+    private fun poster(ev: PartiteEngine.PartiteEvent) =
+        Posters.match(ev.homeName, ev.awayName, ev.title, if (ev.isLive) "LIVE" else "${ev.date} ${ev.time}".trim())
+
     private fun card(ev: PartiteEngine.PartiteEvent): SearchResponse {
-        val label = if (ev.isLive) "🔴 ${ev.title}" else "${ev.time} · ${ev.title}"
-        return newLiveSearchResponse(label, ev.url, TvType.Live, false) {
-            posterUrl = ev.homeLogo ?: ev.awayLogo ?: FALLBACK_POSTER
+        val label = if (ev.isLive) "🔴 ${ev.title}" else "${ev.date} ${ev.time} · ${ev.title}".trim()
+        return newLiveSearchResponse(label, ev.url, TvType.Live, false) { posterUrl = poster(ev) }
+    }
+
+    private fun channelCard(c: PartiteEngine.ChannelInfo): SearchResponse =
+        newLiveSearchResponse(c.name, "$mainUrl/tv-calcio-live/${c.slug}", TvType.Live, false) {
+            posterUrl = Posters.portrait(c.name, c.country)
         }
+
+    private fun emoji(sport: String) = when (sport.lowercase()) {
+        "calcio" -> "⚽"; "pallacanestro", "basket" -> "🏀"; "hockey" -> "🏒"
+        "pallavolo", "volley" -> "🏐"; "football americano" -> "🏈"; "tennis" -> "🎾"; "mma" -> "🥊"
+        else -> "🏆"
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val all = PartiteEngine.fetchEvents()
         val rows = mutableListOf<HomePageList>()
 
-        // 1. Live Now first
-        val live = all.filter { it.isLive }
-        if (live.isNotEmpty()) {
-            rows += HomePageList("🔴 In Diretta Ora", live.map(::card), true)
+        if (LiveSettings.paLive || LiveSettings.paToday) {
+            val home = PartiteEngine.fetchEvents()
+            if (LiveSettings.paLive) {
+                val live = (PartiteEngine.fetchLiveSports() + home).filter { it.isLive }.distinctBy { it.id }
+                if (live.isNotEmpty()) rows += HomePageList("🔴 In diretta ora", live.map(::card), true)
+            }
+            if (LiveSettings.paToday) {
+                home.filter { !it.isLive }.groupBy { it.sport }.entries
+                    .sortedByDescending { if (it.key.equals("Calcio", true)) 10000 else it.value.size }
+                    .forEach { (sport, evs) -> rows += HomePageList("${emoji(sport)} $sport · in programma", evs.map(::card), true) }
+            }
         }
 
-        // 2. Rows grouped by Sport (Calcio first, then by count)
-        all.groupBy { it.sport }.entries
-            .sortedWith(compareByDescending<Map.Entry<String, List<PartiteEngine.PartiteEvent>>> {
-                if (it.key.equals("Calcio", true)) 10000 else it.value.size
-            })
-            .forEach { (sport, evs) ->
-                val emoji = when (sport.lowercase()) {
-                    "calcio" -> "⚽"
-                    "pallacanestro", "basket" -> "🏀"
-                    "hockey" -> "🏒"
-                    "pallavolo", "volley" -> "🏐"
-                    "football americano" -> "🏈"
-                    "tennis" -> "🎾"
-                    "mma" -> "🥊"
-                    else -> "🏆"
-                }
-                rows += HomePageList("$emoji $sport", evs.map(::card), true)
+        if (LiveSettings.paLeagues) {
+            val names = PartiteEngine.fetchLeagueCatalog().associate { it.key to it.name }
+            for (key in LiveSettings.selectedLeagues().sortedBy { names[it] ?: it }) {
+                val (title, evs) = PartiteEngine.fetchLeague(key)
+                if (evs.isNotEmpty()) rows += HomePageList("🏆 $title", evs.map(::card), true)
             }
+        }
+
+        if (LiveSettings.paChannels) {
+            PartiteEngine.fetchChannelCatalog()
+                .filter { LiveSettings.channelSelected(it.slug, it.country) }
+                .groupBy { it.country }
+                .forEach { (country, list) -> rows += HomePageList("📺 Canali $country", list.map(::channelCard), true) }
+        }
 
         return newHomePageResponse(rows, false)
     }
@@ -68,7 +82,10 @@ class PartiteLiveProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         val q = query.trim().lowercase()
         if (q.isEmpty()) return emptyList()
-        return PartiteEngine.fetchEvents().filter { ev ->
+        val chans = PartiteEngine.fetchChannelCatalog().filter { it.name.lowercase().contains(q) }.map(::channelCard)
+        val evs = (PartiteEngine.fetchLiveSports() + PartiteEngine.fetchEvents() +
+            LiveSettings.selectedLeagues().flatMap { PartiteEngine.fetchLeague(it).second }).distinctBy { it.id }
+        return chans + evs.filter { ev ->
             ev.title.lowercase().contains(q) ||
                 ev.competition.lowercase().contains(q) ||
                 ev.sport.lowercase().contains(q) ||
@@ -77,8 +94,20 @@ class PartiteLiveProvider : MainAPI() {
         }.map(::card)
     }
 
+    private fun slugOf(url: String) = url.substringAfter("/tv-calcio-live/", "").trim('/').takeIf { it.isNotBlank() }
+
     override suspend fun load(url: String): LoadResponse {
-        val ev = PartiteEngine.fetchEvents().find { it.url == url }
+        slugOf(url)?.let { slug ->
+            val c = PartiteEngine.fetchChannelCatalog().find { it.slug == slug }
+            val name = c?.name ?: slug
+            return newLiveStreamLoadResponse(name, url, url) {
+                posterUrl = Posters.portrait(name, c?.country)
+                backgroundPosterUrl = c?.logo
+                plot = "📺 Canale TV ${c?.country.orEmpty()} in diretta 24/7 da Partite.cc"
+                tags = listOfNotNull("Live", "TV", c?.country)
+            }
+        }
+        val ev = PartiteEngine.eventByUrl(url) ?: PartiteEngine.fetchEvents().find { it.url == url }
         val title = ev?.title ?: "Partita Live"
         val channels = PartiteEngine.fetchEventChannels(url)
 
@@ -103,7 +132,7 @@ class PartiteLiveProvider : MainAPI() {
         }
 
         return newLiveStreamLoadResponse(title, url, url) {
-            posterUrl = ev?.homeLogo ?: ev?.awayLogo ?: FALLBACK_POSTER
+            posterUrl = ev?.let(::poster) ?: FALLBACK_POSTER
             backgroundPosterUrl = ev?.awayLogo ?: ev?.homeLogo
             this.plot = plot
             tags = listOfNotNull(if (ev?.isLive == true) "Live" else "In programma", ev?.sport, ev?.competition)
@@ -116,7 +145,10 @@ class PartiteLiveProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val channels = PartiteEngine.fetchEventChannels(data)
+        val channels = slugOf(data)?.let { slug ->
+            val cfg = PartiteEngine.fetchChannelConfig(slug) ?: return false
+            listOf(PartiteEngine.PartiteChannel(PartiteEngine.channelBySlug(slug)?.name ?: slug, cfg))
+        } ?: PartiteEngine.fetchEventChannels(data)
         if (channels.isEmpty()) return false
 
         var emitted = 0

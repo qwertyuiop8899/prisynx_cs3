@@ -75,10 +75,13 @@ class SportzXProvider : MainAPI() {
         LiveSettings.isSportEnabled(it.category) && (!LiveSettings.sportOnlyLive || it.isLive)
     }
 
+    private fun poster(ev: SportzXEngine.SportzEvent) =
+        Posters.match(ev.teams.getOrNull(0), ev.teams.getOrNull(1), ev.title, ev.category)
+
     private fun card(ev: SportzXEngine.SportzEvent): SearchResponse {
         val label = if (ev.isLive) "🔴 ${ev.title}" else "${fmt("dd/MM HH:mm", ev.start)} · ${ev.title}"
         return newLiveSearchResponse(label, "$PREFIX${ev.id}", TvType.Live, false) {
-            posterUrl = ev.image ?: FALLBACK_POSTER
+            posterUrl = poster(ev)
         }
     }
 
@@ -120,7 +123,7 @@ class SportzXProvider : MainAPI() {
             append("I canali disponibili si scelgono dal player: se uno non parte prova il successivo.")
         }
         return newLiveStreamLoadResponse(title, "$PREFIX$id", "$PREFIX$id") {
-            posterUrl = ev?.image ?: FALLBACK_POSTER
+            posterUrl = ev?.let(::poster) ?: FALLBACK_POSTER
             backgroundPosterUrl = ev?.image
             this.plot = plot
             tags = listOfNotNull(if (ev?.isLive == true) "Live" else "In programma", ev?.category)
