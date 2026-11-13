@@ -42,13 +42,58 @@ private var lastSeenMaxstreamPrefix: String? = null
 private fun validPrefix(p: String?) =
     p != null && MS_PREFIX_OK.matches(p) && !p.equals("uprot", true) && !p.equals("uprots", true)
 
-fun maxstreamPrefixes(): List<String> =
-    (listOfNotNull(lastSeenMaxstreamPrefix) + KNOWN_MS_PREFIXES).filter(::validPrefix).distinct()
+// Shared prefix service; endpoint and token are XOR(key) + Base64, same scheme as the JS plugins.
+private const val MS_E_BASE = "JRUML2lbXVRSXXF/REZHWWZlV0xlCgMABA=="
+private const val MS_E_TOK = "PCAoMQccMAwCOggJBD9aXyVzMysuZnda"
+private val MS_KEY = listOf("Max", "Stream", "Nuvio", "Key", "2026").joinToString("_").toByteArray()
 
-/** Never rewrites a real player link: only remembers its prefix as the active one. */
-fun rememberMaxstreamPlayer(url: String?): String? {
+private fun msDec(s: String): String {
+    val raw = java.util.Base64.getDecoder().decode(s)
+    return String(ByteArray(raw.size) { i -> (raw[i].toInt() xor MS_KEY[i % MS_KEY.size].toInt()).toByte() }, Charsets.UTF_8)
+}
+
+@Volatile
+private var serverPrefix: String? = null
+@Volatile
+private var serverPrefixAt = 0L
+
+/** GET {BASE}/p once per 30 min; null when the service is unreachable. */
+private suspend fun getServerPrefix(): String? {
+    val now = System.currentTimeMillis()
+    if (serverPrefixAt != 0L && now - serverPrefixAt < 1_800_000L) return serverPrefix
+    serverPrefixAt = now
+    serverPrefix = runCatching {
+        val r = net.get(msDec(MS_E_BASE) + "/p", headers = mapOf("Accept" to "application/json"), timeout = 8)
+        json.readTree(r.text).path("p").asText("")
+    }.getOrNull()?.takeIf(::validPrefix)
+    return serverPrefix
+}
+
+/** Reports a live prefix only if it differs from the shared one; the service re-verifies it on MaxStream. */
+private suspend fun reportPrefix(prefix: String, vid: String) {
+    val sp = getServerPrefix() ?: return
+    if (sp == prefix) return
+    serverPrefix = prefix
+    runCatching {
+        net.get(
+            msDec(MS_E_BASE) + "/r?p=${enc(prefix)}&v=${enc(vid)}&t=${enc(msDec(MS_E_TOK))}",
+            headers = mapOf("Accept" to "application/json"), timeout = 8
+        )
+    }
+}
+
+suspend fun maxstreamPrefixes(): List<String> =
+    (listOfNotNull(lastSeenMaxstreamPrefix, getServerPrefix()) + KNOWN_MS_PREFIXES).filter(::validPrefix).distinct()
+
+/** Never rewrites a real player link: only remembers (and shares) its prefix as the active one. */
+suspend fun rememberMaxstreamPlayer(url: String?): String? {
     if (url.isNullOrBlank()) return url
-    MS_PLAYER_PARTS.find(url)?.groupValues?.get(1)?.takeIf(::validPrefix)?.let { lastSeenMaxstreamPrefix = it }
+    val m = MS_PLAYER_PARTS.find(url) ?: return url
+    val prefix = m.groupValues[1]
+    if (validPrefix(prefix)) {
+        lastSeenMaxstreamPrefix = prefix
+        reportPrefix(prefix, m.groupValues[2])
+    }
     return url
 }
 
