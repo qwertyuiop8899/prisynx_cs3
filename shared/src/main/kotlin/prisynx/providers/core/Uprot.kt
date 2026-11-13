@@ -28,38 +28,45 @@ private val MS_PLAYER = Regex(
     RegexOption.IGNORE_CASE
 )
 
-@Volatile
-private var cachedMaxstreamPrefix: String? = null
-@Volatile
-private var cachedPrefixTime: Long = 0L
+/** Newest first. Add a new prefix at the head only if real links stop carrying it. */
+private val KNOWN_MS_PREFIXES = listOf("emiyiuc5", "emiatgfr", "emisghyy")
+private val MS_PREFIX_OK = Regex("^[A-Za-z0-9]{4,16}$")
+private val MS_PLAYER_PARTS = Regex(
+    "^https?://(?:www\\.)?maxstream\\.video/([A-Za-z0-9]+)/([A-Za-z0-9]+)/?$",
+    RegexOption.IGNORE_CASE
+)
 
-suspend fun getActiveMaxstreamPrefix(ua: String = UP_UA): String {
-    val now = System.currentTimeMillis()
-    val cached = cachedMaxstreamPrefix
-    if (cached != null && now - cachedPrefixTime < 3600000L) {
-        return cached
-    }
-    return try {
-        val html = net.get("https://maxstream.video/", headers = mapOf("User-Agent" to ua), timeout = 10).text
-        val m = Regex("src=[\"']https?://(?:www\\.)?maxstream\\.video/([A-Za-z0-9]+)/[A-Za-z0-9]+[\"']", RegexOption.IGNORE_CASE).find(html)
-        val prefix = m?.groupValues?.get(1) ?: cached ?: "emisghyy"
-        cachedMaxstreamPrefix = prefix
-        cachedPrefixTime = now
-        prefix
-    } catch (e: Exception) {
-        cached ?: "emisghyy"
-    }
+@Volatile
+private var lastSeenMaxstreamPrefix: String? = null
+
+private fun validPrefix(p: String?) =
+    p != null && MS_PREFIX_OK.matches(p) && !p.equals("uprot", true) && !p.equals("uprots", true)
+
+fun maxstreamPrefixes(): List<String> =
+    (listOfNotNull(lastSeenMaxstreamPrefix) + KNOWN_MS_PREFIXES).filter(::validPrefix).distinct()
+
+/** Never rewrites a real player link: only remembers its prefix as the active one. */
+fun rememberMaxstreamPlayer(url: String?): String? {
+    if (url.isNullOrBlank()) return url
+    MS_PLAYER_PARTS.find(url)?.groupValues?.get(1)?.takeIf(::validPrefix)?.let { lastSeenMaxstreamPrefix = it }
+    return url
 }
 
-suspend fun normalizeMaxstreamPlayer(url: String?, ua: String = UP_UA): String? {
-    if (url.isNullOrBlank()) return null
-    val prefix = getActiveMaxstreamPrefix(ua)
-    val m = Regex("^https?://(?:www\\.)?maxstream\\.video/([A-Za-z0-9]+)/([A-Za-z0-9]+)/?$", RegexOption.IGNORE_CASE).find(url)
-    return if (m != null && m.groupValues[1] != prefix) {
-        "https://maxstream.video/$prefix/${m.groupValues[2]}"
-    } else {
-        url
+/** Rebuilds the player from a bare VID, trying at most 3 prefixes (MaxStream rate-limits ~8/h). */
+private suspend fun guessMaxstreamPlayer(vid: String, ua: String): String? {
+    for (prefix in maxstreamPrefixes().take(3)) {
+        val url = "https://maxstream.video/$prefix/$vid"
+        val ok = runCatching {
+            val r = net.get(url, headers = mapOf("User-Agent" to ua, "Referer" to "https://maxstream.video/"), timeout = 15)
+            r.isSuccessful && (r.text.contains("eval(function(p,a,c,k") || r.text.contains(".m3u8"))
+        }.getOrDefault(false)
+        if (ok) {
+            lastSeenMaxstreamPrefix = prefix
+            return url
+        }
     }
+    android.util.Log.w("PriSynx", "[maxstream] no working prefix for $vid")
+    return null
 }
 
 data class UprotStream(
@@ -77,19 +84,15 @@ suspend fun resolveUprot(link: String, sessionUa: String = getRandomUa()): Uprot
     val cached = cachedPlayer(key)
     var media: String? = null
     if (cached != null) {
-        val norm = normalizeMaxstreamPlayer(cached, sessionUa) ?: cached
-        media = maxstreamM3u8(norm, sessionUa)
-        if (media != null && norm != cached) {
-            storePlayer(key, norm)
-        }
+        media = maxstreamM3u8(cached, sessionUa)
+        if (media != null) rememberMaxstreamPlayer(cached)
     }
     if (media == null) {
         // No cached player, or the cached one has expired: unlock and cache a fresh link.
         val uprots = unlockUprot(link, sessionUa) ?: return null
         val player = maxstreamPlayerUrl(uprots, sessionUa) ?: return null
-        val normPlayer = normalizeMaxstreamPlayer(player, sessionUa) ?: player
-        media = maxstreamM3u8(normPlayer, sessionUa) ?: return null
-        storePlayer(key, normPlayer)
+        media = maxstreamM3u8(player, sessionUa) ?: return null
+        storePlayer(key, player)
     }
     val headers = mapOf(
         "User-Agent" to sessionUa,
@@ -120,7 +123,11 @@ private suspend fun unlockUprot(link: String, ua: String): String? {
     }
     for (attempt in 0 until 4) {
         findButtok(html)?.let { return it }
-        val cap = parseUpCaptcha(html) ?: return null
+        val cap = parseUpCaptcha(html)
+        if (cap == null) {
+            if (!html.contains("upcapt", true)) android.util.Log.w("PriSynx", "[uprot] no button and no captcha: page format changed? $link")
+            return null
+        }
         if (!jar.containsKey("PHPSESSID") || attempt == 3) return null
         val answer = solveUpCaptcha(cap) ?: ""
         val body = if (answer.isNotEmpty()) mapOf(cap.field to answer) else emptyMap()
@@ -200,9 +207,21 @@ private suspend fun upPost(
     return response.text
 }
 
-private fun findButtok(html: String): String? {
+private val UPROT_LINK = Regex("^https?://[^\\s\"'<>/]+/uprot[a-z]{0,4}/[^\\s\"'<>]+$", RegexOption.IGNORE_CASE)
+
+private fun tryUprot(b64: String?): String? {
+    val clean = b64?.replace(Regex("\\s+"), "") ?: return null
+    if (clean.length < 16) return null
+    return runCatching {
+        String(java.util.Base64.getMimeDecoder().decode(clean), Charsets.UTF_8).trim()
+    }.getOrNull()?.takeIf { UPROT_LINK.matches(it) }
+}
+
+/** Finds the uprots link; decoys hidden in comments / display:none blocks are stripped first. */
+internal fun findButtok(html: String): String? {
     val clean = html
         .replace(Regex("<!--[\\s\\S]*?-->"), "")
+        .replace(Regex("/\\*[\\s\\S]*?\\*/"), "")
         .replace(
             Regex(
                 "<div[^>]*style=[\"'][^\"']*display\\s*:\\s*none[^\"']*[\"'][^>]*>[\\s\\S]*?</div>",
@@ -210,21 +229,39 @@ private fun findButtok(html: String): String? {
             ),
             ""
         )
-    val atobMatch = Regex("id=[\"']buttok[\"'][^>]*onclick=[\"'][^\"']*atob\\([\"']([A-Za-z0-9+/=]+)[\"']\\)", RegexOption.IGNORE_CASE).find(clean)
-        ?: Regex("onclick=[\"'][^\"']*atob\\([\"']([A-Za-z0-9+/=]+)[\"']\\)[^\"']*[\"'][^>]*id=[\"']buttok[\"']", RegexOption.IGNORE_CASE).find(clean)
-    if (atobMatch != null) {
-        val b64 = atobMatch.groupValues[1]
-        try {
-            val decoded = String(android.util.Base64.decode(b64, android.util.Base64.DEFAULT), Charsets.UTF_8)
-            if (Regex("^https?://[^\\s\"'<>]+$", RegexOption.IGNORE_CASE).matches(decoded)) {
-                return decoded
-            }
-        } catch (_: Exception) {}
+
+    // Old format: <span id="buttok" onclick="...atob('...')">, attributes in either order.
+    listOf(
+        Regex("id=[\"']buttok[\"'][^>]*onclick=[\"'][^\"']*atob\\([\"']([A-Za-z0-9+/=]+)[\"']\\)", RegexOption.IGNORE_CASE),
+        Regex("onclick=[\"'][^\"']*atob\\([\"']([A-Za-z0-9+/=]+)[\"']\\)[^\"']*[\"'][^>]*id=[\"']buttok[\"']", RegexOption.IGNORE_CASE)
+    ).forEach { re -> re.findAll(clean).forEach { m -> tryUprot(m.groupValues[1])?.let { return it } } }
+
+    // New format: string variables joined inside atob(a + b + 'lit' ...).
+    val vars = HashMap<String, String>()
+    Regex("(?:\\b(?:let|var|const)\\s+|[;{\\s])([A-Za-z_$][\\w$]*)\\s*=\\s*([\"'`])([A-Za-z0-9+/=\\s]*)\\2")
+        .findAll(clean).forEach { vars[it.groupValues[1]] = it.groupValues[3] }
+    val literal = Regex("^([\"'`])([\\s\\S]*)\\1$")
+    for (m in Regex("atob\\(\\s*([^()]{1,2000}?)\\s*\\)").findAll(clean)) {
+        val joined = StringBuilder()
+        var ok = true
+        for (piece in m.groupValues[1].split('+').map { it.trim() }) {
+            val v = literal.find(piece)?.groupValues?.get(2) ?: vars[piece]
+            if (v == null) { ok = false; break }
+            joined.append(v)
+        }
+        if (ok) tryUprot(joined.toString())?.let { return it }
     }
-    return Regex(
+
+    Regex(
         "href=[\"'](https?://[^\"'/]+/uprot[a-z]{0,4}/[^/\"']+/[^/\"']+/?)[\"'][^>]*>\\s*<button",
         RegexOption.IGNORE_CASE
-    ).find(clean)?.groupValues?.get(1)
+    ).find(clean)?.groupValues?.get(1)?.let { return it }
+
+    // Last resort: any free-standing base64 literal that decodes to an uprots link.
+    Regex("[\"'`]([A-Za-z0-9+/]{24,}={0,2})[\"'`]").findAll(clean).forEach { m ->
+        tryUprot(m.groupValues[1])?.let { return it }
+    }
+    return null
 }
 
 private fun parseUpCaptcha(html: String): UpCaptcha? {
@@ -302,10 +339,15 @@ private suspend fun maxstreamPlayerUrl(uprotsUrl: String, ua: String): String? {
             ?: Regex("/videostreax/[A-Za-z0-9]+/([A-Za-z0-9]+)").find(value)?.groupValues?.get(1)
     }
 
+    var guessed = false
+    var guessResult: String? = null
     suspend fun guess(): String? {
         val v = vid ?: return null
-        val prefix = getActiveMaxstreamPrefix(ua)
-        return "https://maxstream.video/$prefix/$v"
+        if (!guessed) {
+            guessed = true
+            guessResult = guessMaxstreamPlayer(v, ua)
+        }
+        return guessResult
     }
 
     suspend fun hop(url: String, referer: String, left: Int): String? {
@@ -326,10 +368,10 @@ private suspend fun maxstreamPlayerUrl(uprotsUrl: String, ua: String): String? {
         val body = response.text
         Regex("rawHex\\s*=\\s*[\"']([a-fA-F0-9]{20,8192})[\"']").find(body)?.let { m ->
             val player = hexToText(m.groupValues[1]).reversed()
-            if (Regex("^https?://[^\\s\"'<>]+$").matches(player)) return normalizeMaxstreamPlayer(player, ua)
+            if (Regex("^https?://[^\\s\"'<>]+$").matches(player)) return rememberMaxstreamPlayer(player)
         }
         val next = if (location.isNotBlank()) absUrl(location, url) else ""
-        if (vid == null && MS_PLAYER.matches(next)) return normalizeMaxstreamPlayer(next, ua)
+        if (MS_PLAYER.matches(next)) return rememberMaxstreamPlayer(next)
         if (next.isNotBlank() && left > 0) {
             hop(next, url, left - 1)?.let { return it }
         }
@@ -338,8 +380,7 @@ private suspend fun maxstreamPlayerUrl(uprotsUrl: String, ua: String): String? {
     }
 
     return try {
-        val p = hop(uprotsUrl, "https://maxstream.video/", 1)
-        if (p != null) normalizeMaxstreamPlayer(p, ua) else guess()
+        hop(uprotsUrl, "https://maxstream.video/", 1)
     } catch (e: Exception) {
         guess()
     }
