@@ -85,16 +85,17 @@ private suspend fun reportPrefix(prefix: String, vid: String) {
 suspend fun maxstreamPrefixes(): List<String> =
     (listOfNotNull(lastSeenMaxstreamPrefix, getServerPrefix()) + KNOWN_MS_PREFIXES).filter(::validPrefix).distinct()
 
-/** Never rewrites a real player link: only remembers (and shares) its prefix as the active one. */
-suspend fun rememberMaxstreamPlayer(url: String?): String? {
+/** Never rewrites a real player link: only remembers its prefix as the active one (local only). */
+fun rememberMaxstreamPlayer(url: String?): String? {
     if (url.isNullOrBlank()) return url
-    val m = MS_PLAYER_PARTS.find(url) ?: return url
-    val prefix = m.groupValues[1]
-    if (validPrefix(prefix)) {
-        lastSeenMaxstreamPrefix = prefix
-        reportPrefix(prefix, m.groupValues[2])
-    }
+    MS_PLAYER_PARTS.find(url)?.groupValues?.get(1)?.takeIf(::validPrefix)?.let { lastSeenMaxstreamPrefix = it }
     return url
+}
+
+/** Shares the prefix only after a fresh (non-cached) player really yielded an .m3u8. */
+private suspend fun shareWorkingPlayer(url: String) {
+    val m = MS_PLAYER_PARTS.find(url) ?: return
+    if (validPrefix(m.groupValues[1])) reportPrefix(m.groupValues[1], m.groupValues[2])
 }
 
 /** Rebuilds the player from a bare VID, trying at most 3 prefixes (MaxStream rate-limits ~8/h). */
@@ -137,6 +138,8 @@ suspend fun resolveUprot(link: String, sessionUa: String = getRandomUa()): Uprot
         val uprots = unlockUprot(link, sessionUa) ?: return null
         val player = maxstreamPlayerUrl(uprots, sessionUa) ?: return null
         media = maxstreamM3u8(player, sessionUa) ?: return null
+        rememberMaxstreamPlayer(player)
+        shareWorkingPlayer(player)
         storePlayer(key, player)
     }
     val headers = mapOf(

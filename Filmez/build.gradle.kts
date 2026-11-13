@@ -2,7 +2,7 @@ android {
     sourceSets.getByName("main").java.srcDir(rootProject.file("shared/src/main/kotlin"))
 }
 
-version = 4
+version = 5
 
 cloudstream {
     description = "Filmez: catalogo film WordPress via MaxStream."
