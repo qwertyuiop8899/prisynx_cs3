@@ -16,9 +16,13 @@ import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import prisynx.providers.core.CatalogCard
+import prisynx.providers.core.CatalogRow
+import prisynx.providers.core.CatalogSettings
 import prisynx.providers.core.MediaMeta
 import prisynx.providers.core.MediaRef
 import prisynx.providers.core.TmdbProvider
+import prisynx.providers.core.matches
 import prisynx.providers.core.UA_PC
 import prisynx.providers.core.absUrl
 import prisynx.providers.core.bestHeight
@@ -43,8 +47,18 @@ class AnimeSaturnProvider : TmdbProvider("AnimeSaturn", "https://www.animesaturn
     private val asBase = "https://www.animesaturn.net"
     private val pageCache = ConcurrentHashMap<String, Pair<String, Long>>()
 
+    companion object {
+        /** Home sections of the site. Ids are stable: they are saved in the settings. */
+        val catalogs: List<CatalogRow> = listOf(
+            CatalogRow("featured", "In evidenza", horizontal = true),
+            CatalogRow("latest", "Ultime uscite"),
+            CatalogRow("top", "Più visti questa settimana"),
+            CatalogRow("new", "Nuove aggiunte")
+        )
+    }
+
     @Volatile
-    private var homeCache: Pair<List<HomePageList>, Long>? = null
+    private var homeCache: Pair<Map<String, List<CatalogCard>>, Long>? = null
 
     override val supportedTypes: Set<TvType> = setOf(
         TvType.Anime,
@@ -134,8 +148,8 @@ class AnimeSaturnProvider : TmdbProvider("AnimeSaturn", "https://www.animesaturn
         }
     }
 
-    private fun parseCards(html: String): List<SearchResponse> {
-        val cards = LinkedHashMap<String, SearchResponse>()
+    private fun parseCards(html: String): List<CatalogCard> {
+        val cards = LinkedHashMap<String, CatalogCard>()
         val anchorRegex = Regex(
             "<a\\b[^>]*\\bhref\\s*=\\s*[\"']([^\"']+)[\"'][^>]*>([\\s\\S]*?)</a>",
             RegexOption.IGNORE_CASE
@@ -168,9 +182,50 @@ class AnimeSaturnProvider : TmdbProvider("AnimeSaturn", "https://www.animesaturn
             }
             val poster = absUrl(attribute(imgTag, "src").orEmpty(), asBase)
             if (title.isBlank() || cards.containsKey(path)) continue
-            cards[path] = newAnimeSearchResponse(title, asBase + path, TvType.Anime, fix = false) {
+            val card = newAnimeSearchResponse(title, asBase + path, TvType.Anime, fix = false) {
                 posterUrl = poster.takeIf { it.isNotBlank() }
             }
+            val type = Regex("ac__type-badge[^>]*>([^<]+)<", RegexOption.IGNORE_CASE)
+                .find(body)?.groupValues?.get(1)?.trim()
+            cards[path] = CatalogCard(
+                card = card,
+                dub = body.contains("ac__dub-badge") || isDubTitle(title),
+                type = type
+            )
+        }
+        return cards.values.toList()
+    }
+
+    /** AnimeSaturn marks the dubbed editions with an "(ITA)" suffix in the title. */
+    private fun isDubTitle(title: String): Boolean =
+        title.contains("(ITA)", ignoreCase = true)
+
+    /** The "In evidenza" hero carousel: one landscape card per slide. */
+    private fun parseHero(html: String): List<CatalogCard> {
+        val cards = LinkedHashMap<String, CatalogCard>()
+        val titleRegex = Regex("hero-title[^>]*>([\\s\\S]*?)</h2>", RegexOption.IGNORE_CASE)
+        for (match in titleRegex.findAll(html)) {
+            val title = cleanText(match.groupValues[1])
+            if (title.isBlank()) continue
+            val tailStart = match.range.last + 1
+            val tail = html.substring(tailStart, minOf(html.length, tailStart + 3000))
+            val href = Regex("href=\"(/anime/[^\"]+)\"", RegexOption.IGNORE_CASE)
+                .find(tail)?.groupValues?.get(1) ?: continue
+            val path = Regex("^/anime/[^/]+", RegexOption.IGNORE_CASE)
+                .find(pathOf(href))?.value ?: continue
+            if (cards.containsKey(path)) continue
+            val head = html.substring(maxOf(0, match.range.first - 3000), match.range.first)
+            val imgTag = Regex("<img\\b[^>]*>", RegexOption.IGNORE_CASE)
+                .findAll(head).lastOrNull()?.value
+            val poster = imgTag?.let { absUrl(attribute(it, "src").orEmpty(), asBase) }.orEmpty()
+            val type = Regex(
+                "hero-pill[^>]*>\\s*([A-Za-z]+)\\s*<",
+                RegexOption.IGNORE_CASE
+            ).find(tail)?.groupValues?.get(1)
+            val card = newAnimeSearchResponse(title, asBase + path, TvType.Anime, fix = false) {
+                posterUrl = poster.takeIf { it.isNotBlank() }
+            }
+            cards[path] = CatalogCard(card = card, dub = isDubTitle(title), type = type)
         }
         return cards.values.toList()
     }
@@ -186,21 +241,25 @@ class AnimeSaturnProvider : TmdbProvider("AnimeSaturn", "https://www.animesaturn
         return html.substring(start, end)
     }
 
-    private suspend fun nativeRows(): List<HomePageList> {
+    /** Raw cards per section; the row filters are applied by [getMainPage]. */
+    private suspend fun nativeCards(): Map<String, List<CatalogCard>> {
         val now = System.currentTimeMillis()
         homeCache?.let { (rows, at) ->
             if (now - at < 120_000L) return rows
         }
-        val html = fetchText("$asBase/") ?: return emptyList()
-        val rows = mutableListOf<HomePageList>()
+        val html = fetchText("$asBase/") ?: return emptyMap()
+        val rows = LinkedHashMap<String, List<CatalogCard>>()
 
-        fun add(name: String, source: String) {
+        fun add(id: String, source: String) {
             val cards = parseCards(source).take(40)
-            if (cards.isNotEmpty()) rows.add(HomePageList(name, cards))
+            if (cards.isNotEmpty()) rows[id] = cards
         }
 
+        val featured = parseHero(html).take(40)
+        if (featured.isNotEmpty()) rows["featured"] = featured
+
         add(
-            "Ultime uscite",
+            "latest",
             block(
                 html,
                 "<h2 class=\"section-title\">Ultime uscite</h2>",
@@ -208,7 +267,7 @@ class AnimeSaturnProvider : TmdbProvider("AnimeSaturn", "https://www.animesaturn
             )
         )
         add(
-            "Più visti questa settimana",
+            "top",
             block(
                 html,
                 "Pi&ugrave; visti questa settimana",
@@ -216,7 +275,7 @@ class AnimeSaturnProvider : TmdbProvider("AnimeSaturn", "https://www.animesaturn
             )
         )
         add(
-            "Nuove aggiunte",
+            "new",
             block(
                 html,
                 "<h2 class=\"section-title\">Nuove aggiunte</h2>",
@@ -228,10 +287,17 @@ class AnimeSaturnProvider : TmdbProvider("AnimeSaturn", "https://www.animesaturn
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val rows = try {
-            nativeRows()
+        val cards = try {
+            nativeCards()
         } catch (e: Exception) {
-            emptyList()
+            emptyMap()
+        }
+        val edition = CatalogSettings.edition
+        val type = CatalogSettings.type
+        val rows = CatalogSettings.visible(catalogs).mapNotNull { row ->
+            val visible = cards[row.id].orEmpty().filter { it.matches(edition, type) }
+            if (visible.isEmpty()) null
+            else HomePageList(row.label, visible.map { it.card }, isHorizontalImages = row.horizontal)
         }
         return if (rows.isNotEmpty()) newHomePageResponse(rows, false)
         else super.getMainPage(page, request)
@@ -246,6 +312,8 @@ class AnimeSaturnProvider : TmdbProvider("AnimeSaturn", "https://www.animesaturn
             RegexOption.IGNORE_CASE
         ).find(html)?.groupValues?.get(1) ?: return super.search(query)
         val cards = parseCards(resultBlock)
+            .filter { it.matches(CatalogSettings.edition, CatalogSettings.type) }
+            .map { it.card }
         return cards.ifEmpty { super.search(query) }
     }
 

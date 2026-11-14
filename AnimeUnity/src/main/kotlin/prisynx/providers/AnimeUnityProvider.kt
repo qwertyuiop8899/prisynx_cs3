@@ -16,9 +16,13 @@ import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import prisynx.providers.core.CatalogCard
+import prisynx.providers.core.CatalogRow
+import prisynx.providers.core.CatalogSettings
 import prisynx.providers.core.MediaMeta
 import prisynx.providers.core.MediaRef
 import prisynx.providers.core.TmdbProvider
+import prisynx.providers.core.matches
 import prisynx.providers.core.UA_PC
 import prisynx.providers.core.absUrl
 import prisynx.providers.core.bestHeight
@@ -48,6 +52,16 @@ import java.net.URI
  */
 class AnimeUnityProvider : TmdbProvider("AnimeUnity", "https://www.animeunity.to") {
     private val auBase = "https://www.animeunity.to"
+
+    companion object {
+        /** Home sections of the site. Ids are stable: they are saved in the settings. */
+        val catalogs: List<CatalogRow> = listOf(
+            CatalogRow("featured", "In evidenza"),
+            CatalogRow("latest", "Ultimi episodi"),
+            CatalogRow("top", "Top anime"),
+            CatalogRow("archive", "Archivio")
+        )
+    }
 
     override val supportedTypes: Set<TvType> = setOf(
         TvType.Anime,
@@ -105,14 +119,19 @@ class AnimeUnityProvider : TmdbProvider("AnimeUnity", "https://www.animeunity.to
         return ""
     }
 
-    private fun cardFromNode(node: JsonNode): SearchResponse? {
+    private fun cardFromNode(node: JsonNode): CatalogCard? {
         val title = animeTitle(node)
         val path = animePath(node)
         if (title.isBlank() || path.isBlank()) return null
-        return newAnimeSearchResponse(title, auBase + path, TvType.Anime, fix = false) {
+        val card = newAnimeSearchResponse(title, auBase + path, TvType.Anime, fix = false) {
             posterUrl = animePoster(node).takeIf { it.isNotBlank() }
             year = node.path("date").asText("").take(4).toIntOrNull()
         }
+        return CatalogCard(
+            card = card,
+            dub = node.path("dub").asInt(0) == 1,
+            type = node.path("type").asText("").takeIf { it.isNotBlank() }
+        )
     }
 
     private fun elementTag(html: String, name: String): String? =
@@ -159,9 +178,10 @@ class AnimeUnityProvider : TmdbProvider("AnimeUnity", "https://www.animeunity.to
     }
 
     @Volatile
-    private var homeCache: Pair<List<HomePageList>, Long>? = null
+    private var homeCache: Pair<Map<String, List<CatalogCard>>, Long>? = null
 
-    private suspend fun nativeRows(): List<HomePageList> {
+    /** Raw cards per section; the row filters are applied by [getMainPage]. */
+    private suspend fun nativeCards(): Map<String, List<CatalogCard>> {
         val now = System.currentTimeMillis()
         homeCache?.let { (rows, at) ->
             if (now - at < 120_000L) return rows
@@ -174,34 +194,34 @@ class AnimeUnityProvider : TmdbProvider("AnimeUnity", "https://www.animeunity.to
             val topDeferred = async { fetchText("$auBase/top-anime") }
             val archiveDeferred = async { fetchText("$auBase/archivio") }
 
-            val rows = mutableListOf<HomePageList>()
+            val rows = LinkedHashMap<String, List<CatalogCard>>()
             homeDeferred.await()?.let { home ->
                 val featured = jsonNodes(
                     elementTag(home, "the-carousel")?.let { attribute(it, "animes") }
-                ).mapNotNull(::cardFromNode).distinctBy { it.url }.take(40)
-                if (featured.isNotEmpty()) rows.add(HomePageList("In evidenza", featured))
+                ).mapNotNull(::cardFromNode).distinctBy { it.card.url }.take(40)
+                if (featured.isNotEmpty()) rows["featured"] = featured
 
                 val latest = jsonNodes(
                     elementTag(home, "layout-items")?.let { attribute(it, "items-json") }
                 ).mapNotNull { node ->
                     val anime = node.path("anime")
                     if (anime.isObject) anime else node.takeIf { it.path("id").asInt(0) > 0 }
-                }.mapNotNull(::cardFromNode).distinctBy { it.url }.take(40)
-                if (latest.isNotEmpty()) rows.add(HomePageList("Ultimi episodi", latest))
+                }.mapNotNull(::cardFromNode).distinctBy { it.card.url }.take(40)
+                if (latest.isNotEmpty()) rows["latest"] = latest
             }
 
             topDeferred.await()?.let { top ->
                 val cards = jsonNodes(
                     elementTag(top, "top-anime")?.let { attribute(it, "animes") }
-                ).mapNotNull(::cardFromNode).distinctBy { it.url }.take(40)
-                if (cards.isNotEmpty()) rows.add(HomePageList("Top anime", cards))
+                ).mapNotNull(::cardFromNode).distinctBy { it.card.url }.take(40)
+                if (cards.isNotEmpty()) rows["top"] = cards
             }
 
             archiveDeferred.await()?.let { archive ->
                 val cards = jsonNodes(
                     elementTag(archive, "archivio")?.let { attribute(it, "records") }
-                ).mapNotNull(::cardFromNode).distinctBy { it.url }.take(40)
-                if (cards.isNotEmpty()) rows.add(HomePageList("Archivio", cards))
+                ).mapNotNull(::cardFromNode).distinctBy { it.card.url }.take(40)
+                if (cards.isNotEmpty()) rows["archive"] = cards
             }
             rows
         }
@@ -211,10 +231,17 @@ class AnimeUnityProvider : TmdbProvider("AnimeUnity", "https://www.animeunity.to
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val rows = try {
-            nativeRows()
+        val cards = try {
+            nativeCards()
         } catch (e: Exception) {
-            emptyList()
+            emptyMap()
+        }
+        val edition = CatalogSettings.edition
+        val type = CatalogSettings.type
+        val rows = CatalogSettings.visible(catalogs).mapNotNull { row ->
+            val visible = cards[row.id].orEmpty().filter { it.matches(edition, type) }
+            if (visible.isEmpty()) null
+            else HomePageList(row.label, visible.map { it.card }, isHorizontalImages = row.horizontal)
         }
         return if (rows.isNotEmpty()) newHomePageResponse(rows, false)
         else super.getMainPage(page, request)
@@ -226,7 +253,9 @@ class AnimeUnityProvider : TmdbProvider("AnimeUnity", "https://www.animeunity.to
             ?: return super.search(query)
         val cards = jsonNodes(
             elementTag(html, "archivio")?.let { attribute(it, "records") }
-        ).mapNotNull(::cardFromNode).distinctBy { it.url }
+        ).mapNotNull(::cardFromNode).distinctBy { it.card.url }
+            .filter { it.matches(CatalogSettings.edition, CatalogSettings.type) }
+            .map { it.card }
         return cards.ifEmpty { super.search(query) }
     }
 
