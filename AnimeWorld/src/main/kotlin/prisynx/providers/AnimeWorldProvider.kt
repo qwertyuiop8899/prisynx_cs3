@@ -15,9 +15,13 @@ import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import prisynx.providers.core.CatalogCard
+import prisynx.providers.core.CatalogRow
+import prisynx.providers.core.CatalogSettings
 import prisynx.providers.core.MediaMeta
 import prisynx.providers.core.MediaRef
 import prisynx.providers.core.TmdbProvider
+import prisynx.providers.core.matches
 import prisynx.providers.core.UA_PC
 import prisynx.providers.core.absUrl
 import prisynx.providers.core.bestHeight
@@ -42,8 +46,21 @@ class AnimeWorldProvider : TmdbProvider("AnimeWorld", "https://www.animeworld.ac
     private val awBase = "https://www.animeworld.ac"
     private val pageCache = ConcurrentHashMap<String, Pair<String, Long>>()
 
+    companion object {
+        /** Home sections of the site. Ids are stable: they are saved in the settings. */
+        val catalogs: List<CatalogRow> = listOf(
+            CatalogRow("latest", "Ultimi episodi"),
+            CatalogRow("airing", "Anime in corso"),
+            CatalogRow("upcoming", "In uscita"),
+            CatalogRow("new", "Nuove aggiunte"),
+            CatalogRow("top_day", "Top anime del giorno"),
+            CatalogRow("top_week", "Top anime della settimana"),
+            CatalogRow("top_month", "Top anime del mese")
+        )
+    }
+
     @Volatile
-    private var homeCache: Pair<List<HomePageList>, Long>? = null
+    private var homeCache: Pair<Map<String, List<CatalogCard>>, Long>? = null
     private val blocked = listOf(
         "jujutsukaisenanime.com",
         "onepunchman.it",
@@ -121,8 +138,8 @@ class AnimeWorldProvider : TmdbProvider("AnimeWorld", "https://www.animeworld.ac
         null
     }
 
-    private fun parseCards(html: String): List<SearchResponse> {
-        val cards = LinkedHashMap<String, SearchResponse>()
+    private fun parseCards(html: String): List<CatalogCard> {
+        val cards = LinkedHashMap<String, CatalogCard>()
         val anchorRegex = Regex(
             "<a\\b[^>]*\\bhref\\s*=\\s*[\"']([^\"']*/play/[^\"']+)[\"'][^>]*>\\s*<img\\b[^>]*>",
             RegexOption.IGNORE_CASE
@@ -147,12 +164,17 @@ class AnimeWorldProvider : TmdbProvider("AnimeWorld", "https://www.animeworld.ac
             val poster = absUrl(attribute(imgTag, "src").orEmpty(), awBase)
             if (title.isBlank() || cards.containsKey(path)) continue
             val url = "$awBase$path"
-            cards[path] = newAnimeSearchResponse(title, url, TvType.Anime, fix = false) {
+            val card = newAnimeSearchResponse(title, url, TvType.Anime, fix = false) {
                 posterUrl = poster.takeIf { it.isNotBlank() }
             }
+            cards[path] = CatalogCard(card = card, dub = isDubTitle(title))
         }
         return cards.values.toList()
     }
+
+    /** AnimeWorld marks the dubbed editions with an "(ITA)" suffix in the title. */
+    private fun isDubTitle(title: String): Boolean =
+        title.contains("(ITA)", ignoreCase = true)
 
     private fun block(html: String, startMarker: String, stopMarkers: List<String>): String {
         val start = html.indexOf(startMarker, ignoreCase = true)
@@ -165,21 +187,22 @@ class AnimeWorldProvider : TmdbProvider("AnimeWorld", "https://www.animeworld.ac
         return html.substring(start, end)
     }
 
-    private suspend fun nativeRows(): List<HomePageList> {
+    /** Raw cards per section; the row filters are applied by [getMainPage]. */
+    private suspend fun nativeCards(): Map<String, List<CatalogCard>> {
         val now = System.currentTimeMillis()
         homeCache?.let { (rows, at) ->
             if (now - at < 120_000L) return rows
         }
-        val html = fetchText("$awBase/") ?: return emptyList()
-        val rows = mutableListOf<HomePageList>()
+        val html = fetchText("$awBase/") ?: return emptyMap()
+        val rows = LinkedHashMap<String, List<CatalogCard>>()
 
-        fun add(name: String, source: String) {
+        fun add(id: String, source: String) {
             val cards = parseCards(source).take(40)
-            if (cards.isNotEmpty()) rows.add(HomePageList(name, cards))
+            if (cards.isNotEmpty()) rows[id] = cards
         }
 
         add(
-            "Ultimi Episodi",
+            "latest",
             block(
                 html,
                 "<h2 class=\"title\">Ultimi Episodi</h2>",
@@ -187,7 +210,7 @@ class AnimeWorldProvider : TmdbProvider("AnimeWorld", "https://www.animeworld.ac
             )
         )
         add(
-            "Anime in corso",
+            "airing",
             block(
                 html,
                 "<div class=\"title\">Anime in corso</div>",
@@ -195,7 +218,7 @@ class AnimeWorldProvider : TmdbProvider("AnimeWorld", "https://www.animeworld.ac
             )
         )
         add(
-            "In uscita",
+            "upcoming",
             block(
                 html,
                 "<div class=\"title\">Uscite ",
@@ -203,22 +226,55 @@ class AnimeWorldProvider : TmdbProvider("AnimeWorld", "https://www.animeworld.ac
             )
         )
         add(
-            "Nuove aggiunte",
+            "new",
             block(
                 html,
                 "<div class=\"title\">Nuove aggiunte</div>",
                 listOf("<div id=\"footer\"", "</body>")
             )
         )
+        // Top Anime is client-side tabbed: the three lists are already in the page.
+        add(
+            "top_day",
+            block(
+                html,
+                "<div class=\"content\" data-name=\"day\">",
+                listOf("<div class=\"content hidden\" data-name=\"week\">")
+            )
+        )
+        add(
+            "top_week",
+            block(
+                html,
+                "<div class=\"content hidden\" data-name=\"week\">",
+                listOf("<div class=\"content hidden\" data-name=\"month\">")
+            )
+        )
+        add(
+            "top_month",
+            block(
+                html,
+                "<div class=\"content hidden\" data-name=\"month\">",
+                listOf("<div class=\"title\">Nuove aggiunte</div>", "<div id=\"footer\"")
+            )
+        )
+
         if (rows.isNotEmpty()) homeCache = rows to now
         return rows
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val rows = try {
-            nativeRows()
+        val cards = try {
+            nativeCards()
         } catch (e: Exception) {
-            emptyList()
+            emptyMap()
+        }
+        val edition = CatalogSettings.edition
+        val type = CatalogSettings.type
+        val rows = CatalogSettings.visible(catalogs).mapNotNull { row ->
+            val visible = cards[row.id].orEmpty().filter { it.matches(edition, type) }
+            if (visible.isEmpty()) null
+            else HomePageList(row.label, visible.map { it.card }, isHorizontalImages = row.horizontal)
         }
         return if (rows.isNotEmpty()) newHomePageResponse(rows, false)
         else super.getMainPage(page, request)
@@ -229,6 +285,8 @@ class AnimeWorldProvider : TmdbProvider("AnimeWorld", "https://www.animeworld.ac
         val html = fetchText("$awBase/search?keyword=${enc(query)}")
             ?: return super.search(query)
         val cards = parseCards(html)
+            .filter { it.matches(CatalogSettings.edition, CatalogSettings.type) }
+            .map { it.card }
         return cards.ifEmpty { super.search(query) }
     }
 

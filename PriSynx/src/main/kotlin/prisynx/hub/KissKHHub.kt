@@ -73,6 +73,7 @@ object KissKHHub {
         cache = Home.EMPTY
         cachedAt = 0L
         failedAt = 0L
+        KissKHProvider.forgetPages()
     }
 
     private const val CACHE_MS = 20 * 60_000L
