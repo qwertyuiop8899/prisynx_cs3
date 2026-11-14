@@ -1,0 +1,430 @@
+[
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/Altadefinizione.png",
+    "fileHash": "sha256-832ec8c6873d3bc28fc4491ead5f00e8d4fe9933cdb86f3147dd1abd45c54aef",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 189121,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Movie",
+      "TvSeries"
+    ],
+    "version": 2,
+    "internalName": "Altadefinizione",
+    "description": "Altadefinizione: film e serie TV in streaming.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/Altadefinizione.cs3",
+    "name": "Altadefinizione"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/AnimeSaturn.png",
+    "fileHash": "sha256-2366fd891511d350e3430185e6d2a31a7eedb2000be61b9c5a66b3807da74016",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 205739,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Anime",
+      "AnimeMovie",
+      "OVA"
+    ],
+    "version": 4,
+    "internalName": "AnimeSaturn",
+    "description": "AnimeSaturn: anime sub ITA e ITA con mapping TMDB, sezioni della home e filtri locali.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/AnimeSaturn.cs3",
+    "name": "AnimeSaturn"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/AnimeUnity.png",
+    "fileHash": "sha256-0681b5d8a720f508b7a7bc8aa4a18cc601df3d5c3c72f14e6ffa0ef121372332",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 218046,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Anime",
+      "AnimeMovie",
+      "OVA"
+    ],
+    "version": 4,
+    "internalName": "AnimeUnity",
+    "description": "AnimeUnity: anime sub ITA e ITA con mapping TMDB, sezioni della home e filtri locali.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/AnimeUnity.cs3",
+    "name": "AnimeUnity"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/AnimeWorld.png",
+    "fileHash": "sha256-30e6722c465ea987fad136b525ea83dfd8229c578be9d6de41c50068f41203f0",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 208429,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Anime",
+      "AnimeMovie",
+      "OVA"
+    ],
+    "version": 4,
+    "internalName": "AnimeWorld",
+    "description": "AnimeWorld: anime sub ITA e ITA con mapping TMDB, sezioni della home e filtri locali.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/AnimeWorld.cs3",
+    "name": "AnimeWorld"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/CB01.png",
+    "fileHash": "sha256-4aff68505426b1be25105dc492f6b7c81790c316699079264e99cb77af07cba4",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 197179,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Movie",
+      "TvSeries"
+    ],
+    "version": 6,
+    "internalName": "CB01",
+    "description": "CB01: film e serie TV in streaming.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/CB01.cs3",
+    "name": "CB01"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/DualSync.png",
+    "fileHash": "sha256-d890d3ae9d01c6f60414352f9e8fd0f8c3a429c1ce96cae40c18bb2c151551ef",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 204261,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Movie",
+      "TvSeries"
+    ],
+    "version": 5,
+    "internalName": "DualSync",
+    "description": "DualSync: video 4K/FHD con audio ITA sincronizzato.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/DualSync.cs3",
+    "name": "DualSync"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/Eurostreaming.png",
+    "fileHash": "sha256-343cf43b529487dd0dd2857350e48b7f76a63bf04cdd34f1d2a809c91f538652",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 191205,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Movie",
+      "TvSeries"
+    ],
+    "version": 6,
+    "internalName": "Eurostreaming",
+    "description": "Eurostreaming: film e serie TV in streaming.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/Eurostreaming.cs3",
+    "name": "Eurostreaming"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/Filmez.png",
+    "fileHash": "sha256-ee0e6fbaceec880228891d3c41367fbd819aeeac5372bf508dab21cd35fbbff8",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 184828,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Movie"
+    ],
+    "version": 5,
+    "internalName": "Filmez",
+    "description": "Filmez: catalogo film WordPress via MaxStream.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/Filmez.cs3",
+    "name": "Filmez"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/Guardoserie.png",
+    "fileHash": "sha256-1cf705385ef16ecb4364f966cea95a164ba01cec9ae37dd541999c77057ffdc0",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 209667,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Movie",
+      "TvSeries"
+    ],
+    "version": 3,
+    "internalName": "Guardoserie",
+    "description": "Guardoserie: film e serie TV dal catalogo Guardoserie.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/Guardoserie.cs3",
+    "name": "Guardoserie"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/IlCorsaroViola.png",
+    "fileHash": "sha256-543be90c19c622c3f58ea31c2ef9c53bdac47cc21d2baaa2674530cf794ede75",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 191870,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Movie",
+      "TvSeries"
+    ],
+    "version": 7,
+    "internalName": "IlCorsaroViola",
+    "description": "IlCorsaroViola: torrent P2P con seeders e formati 4K/1080p; con Real-Debrid, AllDebrid o TorBox i magnet diventano link diretti (con attesa configurabile del download).",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/IlCorsaroViola.cs3",
+    "name": "IlCorsaroViola"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/KissKH.png",
+    "fileHash": "sha256-c4942e89369677a0778b38515a4afa5e3d64bff6c693be2fa07ea856a95d6771",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 238629,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "AsianDrama",
+      "TvSeries",
+      "Movie",
+      "Anime",
+      "AnimeMovie"
+    ],
+    "version": 6,
+    "internalName": "KissKH",
+    "description": "Catalogo KissKH nativo, drama e film asiatici con sottotitoli ITA/ENG e traduzione DeepL opzionale.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/KissKH.cs3",
+    "name": "KissKH"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/MovyITA.png",
+    "fileHash": "sha256-661a054766fc4650c7794b4c53be752e7b56573dea4b2e294fc6b739159f6400",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 206370,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Movie",
+      "TvSeries"
+    ],
+    "version": 5,
+    "internalName": "MovyITA",
+    "description": "MovyITA: film e serie TV con sorgenti VixSrc.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/MovyITA.cs3",
+    "name": "MovyITA"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/OnlineSerieTV.png",
+    "fileHash": "sha256-9000b18cd2c486d69aa9b5a46186479544837f56b96af3e259adbf7418dda2f1",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 184927,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Movie",
+      "TvSeries"
+    ],
+    "version": 5,
+    "internalName": "OnlineSerieTV",
+    "description": "OnlineSerieTV: film e serie TV WordPress via MaxStream.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/OnlineSerieTV.cs3",
+    "name": "OnlineSerieTV"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/PaCC.png",
+    "fileHash": "sha256-7042f6026fbb3de0bf959e5cc0a516ec96e217e887bc0b5ef3698204af549b11",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 190175,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Live",
+      "TvSeries"
+    ],
+    "version": 3,
+    "internalName": "PaCC",
+    "description": "PaCC (partite.cc): eventi sportivi in diretta e replay.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/PaCC.cs3",
+    "name": "PaCC"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/VavooLive.png",
+    "fileHash": "sha256-1a646092526741d30b7d16f980a5b0885a22f6704b35075cd23bc98d0bf3ce19",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 122850,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Live"
+    ],
+    "version": 6,
+    "internalName": "PriSynxLive",
+    "description": "PriSynx Live: TV in diretta Vavoo (nazioni selezionabili, EPG Italia), eventi sportivi live SportzX ed eventi live Partite.cc (calcio, basket, motori, tennis in diretta HD), con impostazioni per nazioni, sport e canali DRM.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/PriSynxLive.cs3",
+    "name": "PriSynxLive"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/RaiPlay.png",
+    "fileHash": "sha256-1cb562f903410af90a585d425ae567b4fc66ee6cedaa1cd52ea378d0a0342029",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 25893,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Movie",
+      "TvSeries",
+      "Live"
+    ],
+    "version": 3,
+    "internalName": "RaiPlay",
+    "description": "RaiPlay: film, serie TV, documentari e dirette Rai (catalogo ufficiale, senza DRM). Disponibile solo da Italia/Europa.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/RaiPlay.cs3",
+    "name": "RaiPlay"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/RealTime.png",
+    "fileHash": "sha256-ce972708961323a2a170ebe6d4555482c6c745865ed77b72ad5d3ee3315e4d1a",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 204902,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "TvSeries",
+      "Live",
+      "Movie"
+    ],
+    "version": 2,
+    "internalName": "RealTime",
+    "description": "Real Time: programmi e serie TV del canale Real Time.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/RealTime.cs3",
+    "name": "RealTime"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/Toonitalia.png",
+    "fileHash": "sha256-025ceba7cd78d3ee62aaf13eb6b420e43542f05274797ed197610e02fad2d731",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 204092,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Anime",
+      "AnimeMovie",
+      "OVA",
+      "TvSeries"
+    ],
+    "version": 2,
+    "internalName": "Toonitalia",
+    "description": "Toonitalia: cartoni animati e anime in italiano.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/Toonitalia.cs3",
+    "name": "Toonitalia"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/VidxGo.png",
+    "fileHash": "sha256-3f06d1cdb26531514d602010b7c9efd0d4a324953ffc8ba00b864c8fbf9cda67",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 194541,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Movie",
+      "TvSeries"
+    ],
+    "version": 2,
+    "internalName": "VidxGo",
+    "description": "VidxGo: film e serie TV (IMDb) con flussi HLS fino a 4K.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/VidxGo.cs3",
+    "name": "VidxGo"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/VixSrc.png",
+    "fileHash": "sha256-cf371149d51b80d2953396ff54031cbf7d703ce8087c366c9bfd0f7a6d8f9ee7",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 191225,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Movie",
+      "TvSeries"
+    ],
+    "version": 2,
+    "internalName": "VixSrc",
+    "description": "VixSrc: film e serie TV con streaming multi-qualita.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/VixSrc.cs3",
+    "name": "VixSrc"
+  }
+]
