@@ -22,6 +22,7 @@ import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import java.util.concurrent.ConcurrentHashMap
 import prisynx.providers.core.LocalSubtitle
 import prisynx.providers.core.MediaMeta
 import prisynx.providers.core.MediaRef
@@ -47,6 +48,27 @@ class KissKHProvider : TmdbProvider("KissKH", KissKHSettings.DEFAULT_BASE) {
 
     companion object {
         private const val TAG = "KissKH"
+
+        /** Items asked per catalogue page; matches the 24 cards CloudStream expands by. */
+        private const val PAGE_SIZE = 24
+
+        /** Below this many fresh items the catalogue is over (or the API is repeating itself). */
+        private const val PAGE_LAST = PAGE_SIZE
+
+        /** KissKH never serves more than ~90 pages per catalogue; stop asking past this. */
+        private const val MAX_PAGES = 120
+
+        /**
+         * Ids already returned, per catalogue, with the page that returned them.
+         *
+         * CloudStream appends every page it asks for (and its home dedupe is a no-op),
+         * so a page that repeats older items would show duplicates - and duplicate urls
+         * make the row's DiffUtil jump back to the first poster. Filtering here keeps
+         * the append clean whichever page the app asks for.
+         */
+        private val seenIds = ConcurrentHashMap<String, MutableMap<String, Int>>()
+
+        internal fun forgetPages() = seenIds.clear()
 
         val catalogs: List<Catalog> = listOf(
             Catalog("kr_drama", "Drama coreani", 1, 2),
@@ -79,16 +101,38 @@ class KissKHProvider : TmdbProvider("KissKH", KissKHSettings.DEFAULT_BASE) {
     // ---------------------------------------------------------------- catalogue
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        if (page <= 1) seenIds.clear()
         val results = coroutineScope {
             catalogs.map { catalog ->
                 async {
-                    val items = KissKHApi.list(catalog.type, catalog.country, page, 24)
-                    val cards = items.mapNotNull { item ->
+                    val items = if (page in 1..MAX_PAGES) {
+                        KissKHApi.list(catalog.type, catalog.country, page, PAGE_SIZE)
+                    } else {
+                        emptyList()
+                    }
+                    val seen = seenIds.getOrPut(catalog.id) { ConcurrentHashMap() }
+                    val fresh = items.filter { item ->
+                        val id = item.path("id").asText("").trim()
+                        if (id.isEmpty()) {
+                            true
+                        } else {
+                            val previous = seen[id]
+                            // The same page asked twice (retry): keep the items, the app may
+                            // have dropped the first response. An older page: drop the repeat.
+                            if (previous == null || previous == page) {
+                                seen[id] = page
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                    }
+                    val cards = fresh.mapNotNull { item ->
                         if (KissKHFilters.isAdult(item, catalog.type, catalog.country)) null
                         else searchResponse(item)
                     }
                     val row = cards.takeIf { it.isNotEmpty() }?.let { HomePageList(catalog.label, it) }
-                    row to (items.size >= 24)
+                    row to (fresh.size >= PAGE_LAST)
                 }
             }.awaitAll()
         }
