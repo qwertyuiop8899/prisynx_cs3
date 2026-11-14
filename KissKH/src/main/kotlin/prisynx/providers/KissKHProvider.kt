@@ -52,9 +52,6 @@ class KissKHProvider : TmdbProvider("KissKH", KissKHSettings.DEFAULT_BASE) {
         /** Items asked per catalogue page; matches the 24 cards CloudStream expands by. */
         private const val PAGE_SIZE = 24
 
-        /** Below this many fresh items the catalogue is over (or the API is repeating itself). */
-        private const val PAGE_LAST = PAGE_SIZE
-
         /** KissKH never serves more than ~90 pages per catalogue; stop asking past this. */
         private const val MAX_PAGES = 120
 
@@ -68,7 +65,19 @@ class KissKHProvider : TmdbProvider("KissKH", KissKHSettings.DEFAULT_BASE) {
          */
         private val seenIds = ConcurrentHashMap<String, MutableMap<String, Int>>()
 
-        internal fun forgetPages() = seenIds.clear()
+        /**
+         * Catalogues whose last page came back empty.
+         *
+         * CloudStream keeps the *global* hasNext for every row, so an exhausted row
+         * (KissKH serves [] past the end) would be asked forever. Skipping it saves a
+         * request per scroll and keeps the log readable.
+         */
+        private val exhausted = ConcurrentHashMap.newKeySet<String>()
+
+        internal fun forgetPages() {
+            seenIds.clear()
+            exhausted.clear()
+        }
 
         val catalogs: List<Catalog> = listOf(
             Catalog("kr_drama", "Drama coreani", 1, 2),
@@ -101,30 +110,36 @@ class KissKHProvider : TmdbProvider("KissKH", KissKHSettings.DEFAULT_BASE) {
     // ---------------------------------------------------------------- catalogue
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        if (page <= 1) seenIds.clear()
+        if (page <= 1) forgetPages()
         val results = coroutineScope {
             catalogs.map { catalog ->
                 async {
-                    val items = if (page in 1..MAX_PAGES) {
-                        KissKHApi.list(catalog.type, catalog.country, page, PAGE_SIZE)
-                    } else {
-                        emptyList()
+                    if (page !in 1..MAX_PAGES || exhausted.contains(catalog.id)) {
+                        return@async null to false
                     }
+                    val items = try {
+                        KissKHApi.list(catalog.type, catalog.country, page, PAGE_SIZE)
+                    } catch (e: Exception) {
+                        // One broken catalogue must not blank the whole home.
+                        Log.w(TAG, "list ${catalog.id} page $page: ${e.message}")
+                        return@async null to true
+                    }
+                    // Past its last page KissKH answers with [] - remember it.
+                    if (items.isEmpty()) exhausted += catalog.id
                     val seen = seenIds.getOrPut(catalog.id) { ConcurrentHashMap() }
                     val fresh = items.filter { item ->
                         val id = item.path("id").asText("").trim()
                         if (id.isEmpty()) {
                             true
                         } else {
-                            val previous = seen[id]
-                            // The same page asked twice (retry): keep the items, the app may
-                            // have dropped the first response. An older page: drop the repeat.
-                            if (previous == null || previous == page) {
-                                seen[id] = page
-                                true
-                            } else {
-                                false
+                            // An item is served once per session, whatever page asks for it.
+                            // Re-serving the same page is exactly how a row ends up appending
+                            // the same posters again and again.
+                            val first = seen.putIfAbsent(id, page) == null
+                            if (!first) {
+                                Log.d(TAG, "skip repeat ${catalog.id}#$id on page $page")
                             }
+                            first
                         }
                     }
                     val cards = fresh.mapNotNull { item ->
@@ -132,7 +147,9 @@ class KissKHProvider : TmdbProvider("KissKH", KissKHSettings.DEFAULT_BASE) {
                         else searchResponse(item)
                     }
                     val row = cards.takeIf { it.isNotEmpty() }?.let { HomePageList(catalog.label, it) }
-                    row to (fresh.size >= PAGE_LAST)
+                    // hasNext from the raw page, not from the filtered one: a repeat request
+                    // returns nothing new but the catalogue itself is far from over.
+                    row to (items.size >= PAGE_SIZE)
                 }
             }.awaitAll()
         }
