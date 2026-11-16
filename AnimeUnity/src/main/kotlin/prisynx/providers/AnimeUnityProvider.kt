@@ -208,6 +208,9 @@ class AnimeUnityProvider : TmdbProvider("AnimeUnity", "https://animeunity.cx") {
         null
     }
 
+    @Volatile
+    private var homeCache: Pair<Map<String, List<CatalogCard>>, Long>? = null
+
     private suspend fun nativeCards(): Map<String, List<CatalogCard>> {
         val now = System.currentTimeMillis()
         homeCache?.let { (rows, at) ->
