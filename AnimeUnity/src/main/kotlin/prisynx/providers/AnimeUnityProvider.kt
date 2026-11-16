@@ -47,11 +47,12 @@ import java.net.URI
  * AnimeUnity: native archive/home/search plus the original mapping fallback.
  *
  * Native pages already contain a JSON payload for the show and its first 120
- * episodes. Long shows are completed through /info_api in batches of 120.
- * Playback still uses the /embed-url -> VixCloud signed master playlist.
+ * episodes. Long shows are completed through /api/anime/{id}/episodes in tabs of 120.
+ * Playback: /anime/{id}-{slug}/{videoId} embedUrl -> VixCloud signed master playlist.
  */
-class AnimeUnityProvider : TmdbProvider("AnimeUnity", "https://www.animeunity.to") {
-    private val auBase = "https://www.animeunity.to"
+class AnimeUnityProvider : TmdbProvider("AnimeUnity", "https://animeunity.cx") {
+    @Volatile
+    private var auBase = "https://animeunity.cx"
 
     companion object {
         /** Home sections of the site. Ids are stable: they are saved in the settings. */
@@ -71,7 +72,8 @@ class AnimeUnityProvider : TmdbProvider("AnimeUnity", "https://www.animeunity.to
         TvType.Movie
     )
 
-    private data class NativeRef(val path: String, val episode: Int? = null)
+    /** lang: "ita" / "jpn", or null for every available language. */
+    private data class NativeRef(val path: String, val episode: Int? = null, val lang: String? = null)
 
     private fun parseNative(value: String): NativeRef? {
         val uri = try {
@@ -80,10 +82,11 @@ class AnimeUnityProvider : TmdbProvider("AnimeUnity", "https://www.animeunity.to
             return null
         }
         val host = uri.host?.removePrefix("www.") ?: return null
-        if (!host.equals("animeunity.to", ignoreCase = true)) return null
+        if (!Regex("^animeunity\\.[a-z]{2,4}$", RegexOption.IGNORE_CASE).matches(host)) return null
         val match = Regex("^/anime/[^/]+", RegexOption.IGNORE_CASE)
             .find(uri.path.orEmpty()) ?: return null
-        return NativeRef(match.value, queryValue(uri.rawQuery, "ep")?.toIntOrNull())
+        val lang = queryValue(uri.rawQuery, "lang")?.lowercase()?.takeIf { it == "ita" || it == "jpn" }
+        return NativeRef(match.value, queryValue(uri.rawQuery, "ep")?.toIntOrNull(), lang)
     }
 
     private fun queryValue(query: String?, name: String): String? {
@@ -96,9 +99,9 @@ class AnimeUnityProvider : TmdbProvider("AnimeUnity", "https://www.animeunity.to
     // ------------------------------------------------------------ native cards
 
     private fun animeTitle(node: JsonNode): String {
-        for (field in listOf("title", "title_it", "title_eng")) {
+        for (field in listOf("title_it", "title", "title_ja")) {
             val value = node.path(field).asText("").trim()
-            if (value.isNotBlank()) return decodeHtmlEntities(value)
+            if (value.isNotBlank() && value != "null") return decodeHtmlEntities(value)
         }
         return ""
     }
@@ -111,49 +114,50 @@ class AnimeUnityProvider : TmdbProvider("AnimeUnity", "https://www.animeunity.to
     }
 
     private fun animePoster(node: JsonNode): String {
-        // imageurl is AniList's portrait cover; "cover" is often landscape.
-        for (field in listOf("imageurl", "imageurl_cover", "cover")) {
-            val value = node.path(field).asText("").trim()
-            if (value.isNotBlank()) return absUrl(value, auBase)
+        val images = node.path("images")
+        for (field in listOf("poster", "cover", "banner")) {
+            val value = images.path(field).asText("").trim()
+            if (value.isNotBlank() && value != "null") return absUrl(value, auBase)
         }
         return ""
     }
 
-    private fun cardFromNode(node: JsonNode): CatalogCard? {
+    private fun languages(node: JsonNode): Set<String> =
+        node.path("variants").mapNotNull { it.path("language").asText("").lowercase().ifBlank { null } }.toSet()
+
+    /** The site now has one page per anime; dubbed shows still get a separate "(ITA)" card. */
+    private fun cardsFromNode(node: JsonNode): List<CatalogCard> {
         val title = animeTitle(node)
         val path = animePath(node)
-        if (title.isBlank() || path.isBlank()) return null
-        val card = newAnimeSearchResponse(title, auBase + path, TvType.Anime, fix = false) {
-            posterUrl = animePoster(node).takeIf { it.isNotBlank() }
-            year = node.path("date").asText("").take(4).toIntOrNull()
-        }
-        return CatalogCard(
-            card = card,
-            dub = node.path("dub").asInt(0) == 1,
-            type = node.path("type").asText("").takeIf { it.isNotBlank() }
+        if (title.isBlank() || path.isBlank()) return emptyList()
+        val langs = languages(node)
+        val type = node.path("type").asText("").takeIf { it.isNotBlank() }
+        val year = node.path("year").asInt(0).takeIf { it > 0 }
+        val poster = animePoster(node).takeIf { it.isNotBlank() }
+        fun card(label: String, lang: String?, dub: Boolean) = CatalogCard(
+            card = newAnimeSearchResponse(label, auBase + path + (lang?.let { "?lang=$it" } ?: ""), TvType.Anime, fix = false) {
+                posterUrl = poster
+                this.year = year
+            },
+            dub = dub,
+            type = type
         )
-    }
-
-    private fun elementTag(html: String, name: String): String? =
-        Regex("<$name\\b[^>]*>", RegexOption.IGNORE_CASE).find(html)?.value
-
-    private fun attribute(tag: String, name: String): String? {
-        val value = Regex(
-            "(?:^|\\s)$name\\s*=\\s*[\"']([^\"']*)[\"']",
-            RegexOption.IGNORE_CASE
-        ).find(tag)?.groupValues?.get(1) ?: return null
-        return decodeHtmlEntities(value)
-    }
-
-    private fun jsonNodes(raw: String?): List<JsonNode> {
-        if (raw.isNullOrBlank()) return emptyList()
-        val root = runCatching { json.readTree(raw) }.getOrNull() ?: return emptyList()
         return when {
-            root.isArray -> root.toList()
-            root.path("data").isArray -> root.path("data").toList()
-            else -> emptyList()
+            "ita" in langs && langs.size > 1 -> listOf(card(title, "jpn", false), card("$title (ITA)", "ita", true))
+            "ita" in langs -> listOf(card("$title (ITA)", "ita", true))
+            else -> listOf(card(title, null, false))
         }
     }
+
+    /** Inertia.js page: every prop lives in the JSON of the data-page attribute. */
+    private fun pageProps(html: String?): JsonNode? {
+        val raw = Regex("data-page=\"([^\"]*)\"").find(html ?: return null)?.groupValues?.get(1) ?: return null
+        return runCatching { json.readTree(decodeHtmlEntities(raw)).path("props") }.getOrNull()
+            ?.takeIf { it.isObject }
+    }
+
+    private fun cards(nodes: JsonNode?): List<CatalogCard> =
+        nodes?.flatMap(::cardsFromNode).orEmpty().distinctBy { it.card.url }.take(40)
 
     private fun cleanText(value: String?): String = decodeHtmlEntities(
         value.orEmpty()
@@ -163,7 +167,7 @@ class AnimeUnityProvider : TmdbProvider("AnimeUnity", "https://www.animeunity.to
     )
 
     private suspend fun fetchText(url: String, referer: String = "$auBase/"): String? = try {
-        net.get(
+        val response = net.get(
             url,
             headers = mapOf(
                 "User-Agent" to UA_PC,
@@ -172,15 +176,38 @@ class AnimeUnityProvider : TmdbProvider("AnimeUnity", "https://www.animeunity.to
                 "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
             ),
             timeout = 30
-        ).text
+        )
+        followDomain(response.url)
+        response.text
     } catch (e: Exception) {
         null
     }
 
-    @Volatile
-    private var homeCache: Pair<Map<String, List<CatalogCard>>, Long>? = null
+    /** Adopts the final host when animeunity moves again (.to -> .co -> .cx ...). */
+    private fun followDomain(finalUrl: String?) {
+        val host = runCatching { URI(finalUrl ?: return).host }.getOrNull()?.removePrefix("www.") ?: return
+        if (Regex("^animeunity\\.[a-z]{2,4}$", RegexOption.IGNORE_CASE).matches(host) && !auBase.endsWith("//$host")) {
+            auBase = "https://$host"
+            mainUrl = auBase
+        }
+    }
 
-    /** Raw cards per section; the row filters are applied by [getMainPage]. */
+    private suspend fun fetchJson(url: String, referer: String = "$auBase/"): JsonNode? = try {
+        val text = net.get(
+            url,
+            headers = mapOf(
+                "User-Agent" to UA_PC,
+                "Referer" to referer,
+                "Accept" to "application/json, text/plain, */*",
+                "X-Requested-With" to "XMLHttpRequest"
+            ),
+            timeout = 25
+        ).text
+        json.readTree(text)
+    } catch (e: Exception) {
+        null
+    }
+
     private suspend fun nativeCards(): Map<String, List<CatalogCard>> {
         val now = System.currentTimeMillis()
         homeCache?.let { (rows, at) ->
@@ -190,38 +217,24 @@ class AnimeUnityProvider : TmdbProvider("AnimeUnity", "https://www.animeunity.to
         // Home, top and archive are three independent pages. Fetching them in
         // parallel cuts the cold home-page load roughly to the slowest request.
         val rows = coroutineScope {
-            val homeDeferred = async { fetchText("$auBase/") }
-            val topDeferred = async { fetchText("$auBase/top-anime") }
-            val archiveDeferred = async { fetchText("$auBase/archivio") }
+            val homeDeferred = async { pageProps(fetchText("$auBase/")) }
+            val topDeferred = async { pageProps(fetchText("$auBase/top-anime")) }
+            val archiveDeferred = async { pageProps(fetchText("$auBase/archive")) }
 
             val rows = LinkedHashMap<String, List<CatalogCard>>()
             homeDeferred.await()?.let { home ->
-                val featured = jsonNodes(
-                    elementTag(home, "the-carousel")?.let { attribute(it, "animes") }
-                ).mapNotNull(::cardFromNode).distinctBy { it.card.url }.take(40)
-                if (featured.isNotEmpty()) rows["featured"] = featured
-
-                val latest = jsonNodes(
-                    elementTag(home, "layout-items")?.let { attribute(it, "items-json") }
-                ).mapNotNull { node ->
-                    val anime = node.path("anime")
-                    if (anime.isObject) anime else node.takeIf { it.path("id").asInt(0) > 0 }
-                }.mapNotNull(::cardFromNode).distinctBy { it.card.url }.take(40)
-                if (latest.isNotEmpty()) rows["latest"] = latest
+                cards(home.path("carouselAnimes")).takeIf { it.isNotEmpty() }?.let { rows["featured"] = it }
+                val latest = home.path("latestEpisodes").path("data").mapNotNull { v ->
+                    v.path("episode").path("anime").takeIf { it.isObject }
+                }
+                cards(json.valueToTree<JsonNode>(latest)).ifEmpty { cards(home.path("latestAnimes")) }
+                    .takeIf { it.isNotEmpty() }?.let { rows["latest"] = it }
             }
-
             topDeferred.await()?.let { top ->
-                val cards = jsonNodes(
-                    elementTag(top, "top-anime")?.let { attribute(it, "animes") }
-                ).mapNotNull(::cardFromNode).distinctBy { it.card.url }.take(40)
-                if (cards.isNotEmpty()) rows["top"] = cards
+                cards(top.path("animes").path("data")).takeIf { it.isNotEmpty() }?.let { rows["top"] = it }
             }
-
             archiveDeferred.await()?.let { archive ->
-                val cards = jsonNodes(
-                    elementTag(archive, "archivio")?.let { attribute(it, "records") }
-                ).mapNotNull(::cardFromNode).distinctBy { it.card.url }.take(40)
-                if (cards.isNotEmpty()) rows["archive"] = cards
+                cards(archive.path("animes").path("data")).takeIf { it.isNotEmpty() }?.let { rows["archive"] = it }
             }
             rows
         }
@@ -249,11 +262,9 @@ class AnimeUnityProvider : TmdbProvider("AnimeUnity", "https://www.animeunity.to
 
     override suspend fun search(query: String): List<SearchResponse> {
         if (query.isBlank()) return emptyList()
-        val html = fetchText("$auBase/archivio?title=${enc(query)}", "$auBase/archivio")
+        val data = fetchJson("$auBase/api/search?q=${enc(query)}")?.path("data")
             ?: return super.search(query)
-        val cards = jsonNodes(
-            elementTag(html, "archivio")?.let { attribute(it, "records") }
-        ).mapNotNull(::cardFromNode).distinctBy { it.card.url }
+        val cards = data.flatMap(::cardsFromNode).distinctBy { it.card.url }
             .filter { it.matches(CatalogSettings.edition, CatalogSettings.type) }
             .map { it.card }
         return cards.ifEmpty { super.search(query) }
@@ -261,114 +272,70 @@ class AnimeUnityProvider : TmdbProvider("AnimeUnity", "https://www.animeunity.to
 
     // ------------------------------------------------------------ native load
 
+    private fun episodeNumber(node: JsonNode): Int? =
+        node.path("number").asText("").replace(',', '.').toDoubleOrNull()
+            ?.let { kotlin.math.round(it).toInt() }?.takeIf { it > 0 }
+
+    /** Episodes of the page plus the missing 120-episode tabs from /api/anime/{id}/episodes. */
+    private suspend fun allEpisodes(props: JsonNode, referer: String): List<JsonNode> {
+        val loaded = props.path("loadedEpisodes")
+        val byNumber = LinkedHashMap<Int, JsonNode>()
+        fun add(nodes: JsonNode?) = nodes?.forEach { n -> episodeNumber(n)?.let { byNumber.putIfAbsent(it, n) } }
+        add(loaded.path("episodes"))
+        val total = loaded.path("total").asInt(0)
+        val tab = loaded.path("tab_size").asInt(120).takeIf { it > 0 } ?: 120
+        val id = props.path("anime").path("id").asInt(0)
+        if (id > 0 && total > byNumber.size) {
+            val starts = (1..total step tab).filter { start -> (start until minOf(start + tab, total + 1)).any { it !in byNumber } }
+            val semaphore = Semaphore(4)
+            coroutineScope {
+                starts.map { start ->
+                    async { semaphore.withPermit { fetchJson("$auBase/api/anime/$id/episodes?start=$start", referer)?.path("episodes") } }
+                }.awaitAll()
+            }.forEach { add(it) }
+        }
+        return byNumber.entries.sortedBy { it.key }.map { it.value }
+    }
+
+    private fun hasLanguage(episode: JsonNode, lang: String?) =
+        lang == null || episode.path("videos").any { it.path("language").asText("") == lang && !it.path("is_hidden").asBoolean(false) }
+
     private suspend fun loadNative(ref: NativeRef, url: String): LoadResponse {
-        val page = fetchText(auBase + ref.path)
+        val props = pageProps(fetchText(auBase + ref.path))
             ?: throw ErrorLoadingException("AnimeUnity non raggiungibile")
-        val player = elementTag(page, "video-player")
+        val anime = props.path("anime").takeIf { it.isObject }
             ?: throw ErrorLoadingException("Scheda AnimeUnity non trovata")
-        val anime = attribute(player, "anime")
-            ?.let { runCatching { json.readTree(it) }.getOrNull() }
+        val path = animePath(anime).ifBlank { ref.path }
 
-        var title = anime?.let(::animeTitle).orEmpty()
-        if (title.isBlank()) {
-            title = cleanText(
-                Regex("<title[^>]*>([\\s\\S]*?)</title>", RegexOption.IGNORE_CASE)
-                    .find(page)?.groupValues?.get(1)
-            ).ifBlank { ref.path.substringAfterLast('/') }
-        }
-        val poster = anime?.let(::animePoster).orEmpty()
-        val banner = anime?.path("imageurl_cover")?.asText("").orEmpty()
-        val background = if (banner.isNotBlank()) absUrl(banner, auBase) else poster
-        val plot = anime?.path("plot")?.asText("")?.trim().orEmpty()
-        val year = anime?.path("date")?.asText("")?.take(4)?.toIntOrNull()
-        val duration = anime?.path("episodes_length")?.asInt(0)?.takeIf { it > 0 }
-        val tags = anime?.path("genres")?.mapNotNull {
-            it.path("name").asText("").ifBlank { null }
-        } ?: emptyList()
+        val baseTitle = animeTitle(anime).ifBlank { ref.path.substringAfterLast('/') }
+        val title = if (ref.lang == "ita") "$baseTitle (ITA)" else baseTitle
+        val poster = animePoster(anime)
+        val banner = anime.path("images").path("banner").asText("").takeIf { it.isNotBlank() && it != "null" }
+        val plot = cleanText(anime.path("plot").asText(""))
+        val year = anime.path("year").asInt(0).takeIf { it > 0 }
+        val duration = anime.path("episode_runtime").asInt(0).takeIf { it > 0 }
+        val tags = anime.path("genres").mapNotNull { it.path("name").asText("").ifBlank { null } }
 
-        val episodeNodes = LinkedHashMap<Int, Pair<Int, JsonNode>>()
-        fun addEpisodes(nodes: JsonNode?) {
-            nodes?.forEach { node ->
-                val raw = node.path("number").asText("").replace(',', '.')
-                val value = raw.toDoubleOrNull() ?: return@forEach
-                val number = kotlin.math.round(value).toInt()
-                if (number > 0 && !episodeNodes.containsKey(number)) {
-                    episodeNodes[number] = number to node
-                }
-            }
-        }
-
-        addEpisodes(
-            attribute(player, "episodes")?.let {
-                runCatching { json.readTree(it) }.getOrNull()
-            }
-        )
-
-        val total = attribute(player, "episodes_count")?.toIntOrNull()
-            ?: anime?.path("episodes_count")?.asInt(0)
-            ?: 0
-        val animeId = anime?.path("id")?.asInt(0)?.takeIf { it > 0 }
-            ?: Regex("/anime/(\\d+)").find(ref.path)?.groupValues?.get(1)?.toIntOrNull()
-            ?: 0
-
-        if (total > episodeNodes.size && animeId > 0) {
-            // Only request ranges that are not already embedded in the page.
-            // Long shows (One Piece: 1000+) need several /info_api calls, and
-            // doing them sequentially was the main reason load() felt slow.
-            val known = episodeNodes.keys.toSet()
-            val ranges = (1..total step 120).map { start ->
-                start..minOf(start + 119, total)
-            }.filter { range -> range.any { it !in known } }
-
-            if (ranges.isNotEmpty()) {
-                val headers = mapOf(
-                    "User-Agent" to UA_PC,
-                    "Referer" to auBase + ref.path,
-                    "X-Requested-With" to "XMLHttpRequest",
-                    "Accept" to "application/json, text/plain, */*"
+        val langQuery = ref.lang?.let { "&lang=$it" } ?: ""
+        val episodes = allEpisodes(props, auBase + path)
+            .filter { hasLanguage(it, ref.lang) }
+            .mapNotNull { node ->
+                val number = episodeNumber(node) ?: return@mapNotNull null
+                newEpisode(
+                    url = "$auBase$path?ep=$number$langQuery",
+                    initializer = {
+                        name = "Episodio ${node.path("number").asText(number.toString())}"
+                        season = 1
+                        episode = number
+                        posterUrl = poster.takeIf { it.isNotBlank() }
+                    },
+                    fix = false
                 )
-                val semaphore = Semaphore(4)
-                val batches = coroutineScope {
-                    ranges.map { range ->
-                        async {
-                            semaphore.withPermit {
-                                val start = range.first
-                                val end = range.last
-                                val info = try {
-                                    net.get(
-                                        "$auBase/info_api/$animeId/1?start_range=$start&end_range=$end",
-                                        headers = headers,
-                                        timeout = 25
-                                    ).text
-                                } catch (e: Exception) {
-                                    null
-                                }
-                                info?.let { runCatching { json.readTree(it) }.getOrNull() }
-                                    ?.path("episodes")
-                            }
-                        }
-                    }.awaitAll()
-                }
-                batches.forEach(::addEpisodes)
             }
-        }
-
-        val episodes = episodeNodes.values.map { (number, node) ->
-            newEpisode(
-                url = "$auBase${ref.path}?ep=$number",
-                initializer = {
-                    name = "Episodio ${node.path("number").asText(number.toString())}"
-                    season = 1
-                    episode = number
-                    posterUrl = poster.takeIf { it.isNotBlank() }
-                },
-                fix = false
-            )
-        }.sortedBy { it.episode ?: 0 }
 
         return newTvSeriesLoadResponse(title, url, TvType.Anime, episodes) {
             posterUrl = poster.takeIf { it.isNotBlank() }
-            backgroundPosterUrl = background.takeIf { it.isNotBlank() }
+            backgroundPosterUrl = banner ?: poster.takeIf { it.isNotBlank() }
             this.plot = plot.takeIf { it.isNotBlank() }
             this.year = year
             this.duration = duration
@@ -387,23 +354,29 @@ class AnimeUnityProvider : TmdbProvider("AnimeUnity", "https://www.animeunity.to
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val episode = ref.episode ?: return false
-        val embed = resolveEmbed(ref.path, episode) ?: return false
-        val streams = resolveVix(embed) ?: return false
+        val langs = ref.lang?.let { listOf(it) } ?: listOf("ita", "jpn")
+        return emitEmbeds(resolveEmbeds(ref.path, episode, langs), callback)
+    }
+
+    private suspend fun emitEmbeds(embeds: List<Pair<String, String>>, callback: (ExtractorLink) -> Unit): Boolean {
         var emitted = 0
         val seen = HashSet<String>()
-        for (stream in streams.take(2)) {
-            if (!seen.add(stream.first)) continue
-            emit(
-                callback = callback,
-                url = stream.first,
-                label = "AnimeUnity ${stream.second} " +
-                    (if (isItalianPath(ref.path)) "\uD83C\uDDEE\uD83C\uDDF9" else "\uD83C\uDDEF\uD83C\uDDF5 SUB"),
-                quality = stream.third,
-                type = ExtractorLinkType.M3U8,
-                referer = stream.fourth["Referer"],
-                headers = stream.fourth
-            )
-            emitted++
+        for ((lang, embed) in embeds) {
+            val streams = resolveVix(embed) ?: continue
+            for (stream in streams.take(2)) {
+                if (!seen.add(stream.first)) continue
+                emit(
+                    callback = callback,
+                    url = stream.first,
+                    label = "AnimeUnity ${stream.second} " +
+                        (if (lang == "ita") "\uD83C\uDDEE\uD83C\uDDF9" else "\uD83C\uDDEF\uD83C\uDDF5 SUB"),
+                    quality = stream.third,
+                    type = ExtractorLinkType.M3U8,
+                    referer = stream.fourth["Referer"],
+                    headers = stream.fourth
+                )
+                emitted++
+            }
         }
         return emitted > 0
     }
@@ -484,133 +457,57 @@ class AnimeUnityProvider : TmdbProvider("AnimeUnity", "https://www.animeunity.to
         isMovie: Boolean,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        var emitted = 0
-        val seen = HashSet<String>()
-        for (path in paths) {
-            val embed = resolveEmbed(path, episodeNumber) ?: continue
-            val streams = resolveVix(embed) ?: continue
-            for (stream in streams.take(2)) {
-                if (!seen.add(stream.first)) continue
-                emit(
-                    callback = callback,
-                    url = stream.first,
-                    label = "AnimeUnity ${stream.second} " +
-                        (if (isItalianPath(path)) "\uD83C\uDDEE\uD83C\uDDF9" else "\uD83C\uDDEF\uD83C\uDDF5 SUB"),
-                    quality = stream.third,
-                    type = ExtractorLinkType.M3U8,
-                    referer = stream.fourth["Referer"],
-                    headers = stream.fourth
-                )
-                emitted++
-            }
+        // Old "-ita" pages redirect to the single anime page now: the path only tells the language.
+        val wanted = paths.map { path -> path to (if (isItalianPath(path)) "ita" else "jpn") }
+            .distinctBy { it.second }
+        val embeds = mutableListOf<Pair<String, String>>()
+        for ((path, lang) in wanted) {
+            embeds += resolveEmbeds(path, episodeNumber, listOf(lang))
         }
-        return emitted > 0
+        return emitEmbeds(embeds.distinctBy { it.second }, callback)
     }
 
     // ------------------------------------------------------------ playback internals
 
-    private data class Session(
-        val cookies: MutableMap<String, String> = LinkedHashMap(),
-        var csrf: String = ""
-    )
+    /** Returns (language, VixCloud embed) for each requested language available on that episode. */
+    private suspend fun resolveEmbeds(animePath: String, episode: Int, langs: List<String>): List<Pair<String, String>> {
+        val props = pageProps(fetchText(auBase + animePath)) ?: return emptyList()
+        val anime = props.path("anime")
+        val path = animePath(anime).ifBlank { animePath }
+        val pageUrl = auBase + path
 
-    private fun cookieHeader(session: Session): String =
-        session.cookies.entries.joinToString("; ") { "${it.key}=${it.value}" }
-
-    private fun pageHeaders(session: Session, referer: String): Map<String, String> {
-        val headers = mutableMapOf(
-            "User-Agent" to UA_PC,
-            "Accept-Language" to "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Referer" to referer,
-            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-        )
-        val cookie = cookieHeader(session)
-        if (cookie.isNotBlank()) headers["Cookie"] = cookie
-        return headers
-    }
-
-    private fun xhrHeaders(session: Session, referer: String): Map<String, String> {
-        val headers = mutableMapOf(
-            "User-Agent" to UA_PC,
-            "Accept-Language" to "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Referer" to referer,
-            "Accept" to "application/json, text/plain, */*",
-            "X-Requested-With" to "XMLHttpRequest"
-        )
-        if (session.csrf.isNotBlank()) headers["X-CSRF-TOKEN"] = session.csrf
-        session.cookies["XSRF-TOKEN"]?.let { headers["X-XSRF-TOKEN"] = it }
-        val cookie = cookieHeader(session)
-        if (cookie.isNotBlank()) headers["Cookie"] = cookie
-        return headers
-    }
-
-    private suspend fun getText(
-        url: String,
-        headers: Map<String, String>,
-        session: Session
-    ): String? = try {
-        val response = net.get(url, headers = headers, timeout = 25)
-        session.cookies.putAll(response.cookies)
-        response.text
-    } catch (e: Exception) {
-        null
-    }
-
-    private suspend fun resolveEmbed(animePath: String, episode: Int): String? {
-        val session = Session()
-        val pageUrl = auBase + animePath
-        val page = getText(pageUrl, pageHeaders(session, "$auBase/"), session) ?: return null
-        Regex("<meta[^>]+name=[\"']csrf-token[\"'][^>]+content=[\"']([^\"']+)")
-            .find(page)?.groupValues?.get(1)?.let { session.csrf = it }
-        val tag = Regex("<video-player\\b[^>]*>", RegexOption.IGNORE_CASE).find(page)?.value
-            ?: return null
-
-        val episodesJson = attribute(tag, "episodes")
-        val episodes = episodesJson?.let { runCatching { json.readTree(it) }.getOrNull() }
-        var target: JsonNode? = null
-        episodes?.forEach { node ->
-            val number = node.path("number").asText("").replace(',', '.').toDoubleOrNull()
-            if (number != null && kotlin.math.round(number).toInt() == episode) target = node
+        val loaded = props.path("loadedEpisodes")
+        var target = loaded.path("episodes").firstOrNull { episodeNumber(it) == episode }
+        val id = anime.path("id").asInt(0)
+        if (target == null && id > 0) {
+            val tab = loaded.path("tab_size").asInt(120).takeIf { it > 0 } ?: 120
+            val start = ((episode - 1) / tab) * tab + 1
+            target = fetchJson("$auBase/api/anime/$id/episodes?start=$start", pageUrl)
+                ?.path("episodes")?.firstOrNull { episodeNumber(it) == episode }
         }
+        // Films / single-episode entries: the page episode is the only one.
+        if (target == null && loaded.path("total").asInt(0) <= 1) {
+            target = props.path("episode").takeIf { it.isObject }
+        }
+        val videos = target?.path("videos") ?: return emptyList()
 
-        if (target == null && episodes != null && episodes.size() > 0) {
-            val animeId = attribute(tag, "anime")?.let {
-                runCatching { json.readTree(it).path("id").asText("") }.getOrDefault("")
-            }.orEmpty().ifBlank {
-                Regex("/anime/(\\d+)").find(animePath)?.groupValues?.get(1) ?: ""
-            }
-            if (animeId.isNotBlank()) {
-                val start = ((episode - 1) / 120) * 120 + 1
-                val end = start + 119
-                val infoUrl = "$auBase/info_api/$animeId/1?start_range=$start&end_range=$end"
-                val infoText = getText(infoUrl, xhrHeaders(session, pageUrl), session)
-                val info = infoText?.let { runCatching { json.readTree(it) }.getOrNull() }
-                info?.path("episodes")?.forEach { node ->
-                    val number = node.path("number").asText("").replace(',', '.').toDoubleOrNull()
-                    if (number != null && kotlin.math.round(number).toInt() == episode) target = node
-                }
-            }
+        val currentId = props.path("video").path("id").asInt(0)
+        val currentEmbed = props.path("embedUrl").asText("")
+        val out = mutableListOf<Pair<String, String>>()
+        for (lang in langs) {
+            val video = videos.firstOrNull {
+                it.path("language").asText("") == lang && !it.path("is_hidden").asBoolean(false)
+            } ?: continue
+            val videoId = video.path("id").asInt(0)
+            val embed = if (videoId == currentId && currentEmbed.startsWith("http")) currentEmbed
+            else pageProps(fetchText("$pageUrl/$videoId", pageUrl))?.path("embedUrl")?.asText("").orEmpty()
+            if (embed.startsWith("http")) out += lang to embed
         }
-
-        var embed = target?.path("embed_url")?.asText("").orEmpty()
-        val targetId = target?.path("id")?.asText("").orEmpty()
-        if (embed.isBlank() && targetId.isNotBlank()) {
-            val response = getText("$auBase/embed-url/$targetId", xhrHeaders(session, pageUrl), session)
-            if (!response.isNullOrBlank() && response.trim().startsWith("http")) {
-                embed = response.trim()
-            }
-        }
-        if (embed.isBlank()) {
-            val total = attribute(tag, "episodes_count")?.toIntOrNull() ?: 0
-            if ((episodes?.size() ?: 0) <= 1 && total <= 1) {
-                attribute(tag, "embed_url")?.takeIf { it.startsWith("http") }?.let { embed = it }
-            }
-        }
-        return embed.ifBlank { null }
+        return out
     }
 
     private suspend fun resolveVix(originalEmbed: String): List<Quadruple<String, String, Int, Map<String, String>>>? {
-        val hosts = listOf("vixcloud.co", "vixsrc.to")
+        val hosts = listOf("vixcloud.cc", "vixcloud.co", "vixsrc.to")
         for (host in hosts) {
             val embed = originalEmbed.replace(
                 Regex("^(https?://)(?:www\\.)?(?:vixcloud\\.(?:co|cc)|vixsrc\\.to)", RegexOption.IGNORE_CASE),
