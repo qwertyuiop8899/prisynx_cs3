@@ -75,7 +75,7 @@ object FullBackupManager {
         snapshot.floats.forEach { (k, v) -> if (k !in skipKeys) editor.putFloat(k, v) }
         snapshot.strings.forEach { (k, v) -> if (k !in skipKeys) editor.putString(k, v) }
         snapshot.stringSets.forEach { (k, v) -> if (k !in skipKeys) editor.putStringSet(k, v) }
-        editor.apply()
+        editor.commit()
     }
 
     /**
@@ -118,6 +118,10 @@ object FullBackupManager {
     /**
      * Restores all settings from JSON string into SharedPreferences.
      */
+    /** Plugins that CloudStream will download again at the next start (set by the last restore). */
+    var lastMissingPlugins = 0
+        private set
+
     fun restoreFullBackupJson(context: Context, json: String): Boolean {
         return try {
             val payload = mapper.readValue<FullBackupPayload>(json)
@@ -129,6 +133,7 @@ object FullBackupManager {
                 }
                 restoreSnapshot(sp, snapshot)
             }
+            lastMissingPlugins = runCatching { PluginRestorer.markMissing(context) }.getOrDefault(0)
             true
         } catch (e: Exception) {
             e.printStackTrace()
