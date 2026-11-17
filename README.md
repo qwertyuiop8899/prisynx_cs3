@@ -110,6 +110,7 @@ In CloudStream: **Impostazioni → Estensioni → Aggiungi repository** e incoll
 | :--- | :--- | :--- |
 | 🧩 **PriSynx Center** (consigliato) | `https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/center.json` | L'estensione **PriSynx** con tutti i provider, **RaiPlay** e **KissKH integrati**, più il menu ⚙️ per TV; RaiPlay e KissKH sono installabili anche da soli |
 | 🔌 **Provider singoli** | `https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/singoli.json` | Un'estensione per provider, attivabili/aggiornabili una per una (niente menu) |
+| 🔒 **PriSync** | `https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/prisync.json` | Solo il backup/ripristino della configurazione di CloudStream ([guida](PriSync/README.md)) |
 
 Il vecchio URL `.../main/main.json` resta valido e mostra tutte le estensioni insieme.
 Non installare insieme PriSynx e i provider singoli: avresti i link doppi.
@@ -175,6 +176,8 @@ Dal menu **PriSynx → Impostazioni → Altro** è disponibile il sistema di sin
   - Nessun dato in chiaro: la VPS riceve solo byte cifrati opachi e non conosce la chiave di decifratura.
   - Protezione anti-bruteforce: dopo 5 tentativi consecutivi di PIN errato, il server blocca l'accesso per 60 minuti.
   - Il codice del server è open source e disponibile nella cartella [`server/`](server/).
+- **Plugin mancanti**: dopo il ripristino, i plugin installati sul dispositivo di origine ma assenti su quello di destinazione vengono riscaricati in automatico dai loro repository al riavvio di CloudStream.
+- **Solo sync**: lo stesso sistema è disponibile come estensione a sé, **PriSync** (repository `.../main/prisync.json`, vedi [PriSync/README.md](PriSync/README.md)).
 
 ---
 
@@ -261,7 +264,7 @@ Basta modificare i sorgenti su `main` (anche dall'editor web di GitHub) e fare c
 
 1. Modifica il provider in `<Provider>/src/main/kotlin/...` oppure il codice comune in `shared/`.
 2. **Alza `version`** nel `build.gradle.kts` del modulo modificato, altrimenti CloudStream non propone l'aggiornamento. Se tocchi `shared/` alza la versione dei moduli che usano il codice cambiato; se tocchi un provider alza anche `PriSynx/build.gradle.kts` (l'hub include i sorgenti di tutti i provider).
-3. Commit/push su `main` → il workflow **CloudStream build** (tab *Actions*, ~5 minuti) compila e pubblica sul branch `builds`: `*.cs3`, `plugins.json` (tutti), `plugins-center.json` (PriSynx + RaiPlay), `plugins-singoli.json` (provider singoli).
+3. Commit/push su `main` → il workflow **CloudStream build** (tab *Actions*, ~5 minuti) compila e pubblica sul branch `builds`: `*.cs3`, `plugins.json` (tutti), `plugins-center.json` (PriSynx + RaiPlay), `plugins-singoli.json` (provider singoli), `plugins-prisync.json` (solo PriSync).
 4. In CloudStream: *Impostazioni → Estensioni* → aggiorna.
 
 Il workflow si può avviare anche a mano da *Actions → CloudStream build → Run workflow*. Se fallisce, il log del passo *Build plugins* mostra l'errore Kotlin (`e: file…:riga`).
