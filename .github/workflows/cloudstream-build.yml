@@ -17,6 +17,7 @@ on:
       - ".github/workflows/cloudstream-build.yml"
       - "center.json"
       - "singoli.json"
+      - "prisync.json"
 
 permissions:
   contents: write
@@ -58,6 +59,7 @@ jobs:
           single = [p for p in plugins if p["internalName"] not in ("PriSynx", "VavooLive")]
           json.dump(center, open("../out/plugins-center.json", "w"), indent=2, ensure_ascii=False)
           json.dump(single, open("../out/plugins-singoli.json", "w"), indent=2, ensure_ascii=False)
+          json.dump([p for p in plugins if p["internalName"] == "PriSync"], open("../out/plugins-prisync.json", "w"), indent=2, ensure_ascii=False)
           PY
 
       - name: Upload artifacts

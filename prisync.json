@@ -1,0 +1,8 @@
+{
+  "name": "PriSync",
+  "description": "Solo PriSync: backup e ripristino della configurazione di CloudStream",
+  "manifestVersion": 1,
+  "pluginLists": [
+    "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/plugins-prisync.json"
+  ]
+}
