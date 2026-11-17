@@ -2,7 +2,7 @@ android {
     sourceSets.getByName("main").java.srcDir(rootProject.file("shared/src/main/kotlin"))
 }
 
-version = 6
+version = 7
 
 cloudstream {
     description = "Eurostreaming: film e serie TV in streaming."

@@ -29,7 +29,7 @@ private val MS_PLAYER = Regex(
 )
 
 /** Newest first. Add a new prefix at the head only if real links stop carrying it. */
-private val KNOWN_MS_PREFIXES = listOf("emiyiuc5", "emiatgfr", "emisghyy")
+private val KNOWN_MS_PREFIXES = listOf("emi7m2j4", "emiyiuc5", "emiatgfr", "emisghyy")
 private val MS_PREFIX_OK = Regex("^[A-Za-z0-9]{4,16}$")
 private val MS_PLAYER_PARTS = Regex(
     "^https?://(?:www\\.)?maxstream\\.video/([A-Za-z0-9]+)/([A-Za-z0-9]+)/?$",
@@ -132,6 +132,19 @@ suspend fun resolveUprot(link: String, sessionUa: String = getRandomUa()): Uprot
     if (cached != null) {
         media = maxstreamM3u8(cached, sessionUa)
         if (media != null) rememberMaxstreamPlayer(cached)
+        else {
+            // Cached links keep the prefix of when they were stored: on a dead one retry the VID with the live prefix.
+            val parts = MS_PLAYER_PARTS.find(cached)
+            val live = maxstreamPrefixes().firstOrNull()
+            if (parts != null && live != null && live != parts.groupValues[1]) {
+                val fresh = "https://maxstream.video/$live/${parts.groupValues[2]}"
+                val html = maxstreamPage(fresh, sessionUa)
+                media = html?.let(::m3u8FromPlayer)
+                if (media != null) storePlayer(key, fresh)
+                // Same VID behind the captcha: a deleted file must not burn a captcha call.
+                else if (html != null && DEAD_FILE.containsMatchIn(html)) return null
+            }
+        }
     }
     if (media == null) {
         // No cached player, or the cached one has expired: unlock and cache a fresh link.
@@ -434,19 +447,25 @@ private suspend fun maxstreamPlayerUrl(uprotsUrl: String, ua: String): String? {
     }
 }
 
-private suspend fun maxstreamM3u8(playerUrl: String, ua: String): String? {
-    val html = try {
-        net.get(
-            playerUrl,
-            headers = mapOf(
-                "User-Agent" to ua,
-                "Referer" to "https://maxstream.video/"
-            ),
-            timeout = 20
-        ).text
-    } catch (e: Exception) {
-        return null
-    }
+private val DEAD_FILE = Regex("not longer available|has been deleted", RegexOption.IGNORE_CASE)
+
+private suspend fun maxstreamPage(playerUrl: String, ua: String): String? = try {
+    net.get(
+        playerUrl,
+        headers = mapOf(
+            "User-Agent" to ua,
+            "Referer" to "https://maxstream.video/"
+        ),
+        timeout = 20
+    ).text
+} catch (e: Exception) {
+    null
+}
+
+private suspend fun maxstreamM3u8(playerUrl: String, ua: String): String? =
+    maxstreamPage(playerUrl, ua)?.let(::m3u8FromPlayer)
+
+private fun m3u8FromPlayer(html: String): String? {
     var text = html
     val packed = Regex(
         "eval\\(function\\(p,a,c,k,e,d\\)[\\s\\S]*?\\}\\([\\s\\S]*?\\.split\\(['\"]\\|['\"]\\)[\\s\\S]*?\\)\\s*\\)",
