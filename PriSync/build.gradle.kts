@@ -4,7 +4,7 @@ android {
     sourceSets.getByName("main").java.srcDir(rootProject.file("PriSynx/src/main/kotlin/prisynx/sync"))
 }
 
-version = 1
+version = 2
 
 cloudstream {
     description = "PriSync: salva e ripristina con un PIN tutta la configurazione di CloudStream (repository, plugin, impostazioni dei plugin, cronologia, preferiti). I plugin mancanti vengono riscaricati in automatico al riavvio."

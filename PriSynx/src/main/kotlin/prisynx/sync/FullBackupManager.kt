@@ -118,8 +118,10 @@ object FullBackupManager {
     /**
      * Restores all settings from JSON string into SharedPreferences.
      */
-    /** Plugins that CloudStream will download again at the next start (set by the last restore). */
-    var lastMissingPlugins = 0
+    /** What the last restore wrote on this device. */
+    var lastReport: PluginRestorer.Report? = null
+        private set
+    var lastPrefsRestored = 0
         private set
 
     fun restoreFullBackupJson(context: Context, json: String): Boolean {
@@ -133,7 +135,8 @@ object FullBackupManager {
                 }
                 restoreSnapshot(sp, snapshot)
             }
-            lastMissingPlugins = runCatching { PluginRestorer.markMissing(context) }.getOrDefault(0)
+            lastPrefsRestored = payload.prefs.size
+            lastReport = runCatching { PluginRestorer.restore(context) }.getOrNull()
             true
         } catch (e: Exception) {
             e.printStackTrace()

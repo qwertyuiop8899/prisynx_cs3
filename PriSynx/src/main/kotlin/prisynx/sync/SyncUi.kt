@@ -191,10 +191,15 @@ object SyncUi {
                                 AlertDialog.Builder(context)
                                     .setTitle("Ripristino Completato! ✅")
                                     .setMessage(buildString {
-                                        append("Preferenze, repository, plugin e cronologia aggiornati.\n\n")
-                                        val n = FullBackupManager.lastMissingPlugins
-                                        if (n > 0) append("$n plugin non presenti su questo dispositivo verranno scaricati in automatico dai loro repository.\n\n")
-                                        append("Chiudi e riapri CloudStream per applicare tutto.")
+                                        val r = FullBackupManager.lastReport
+                                        append("Gruppi di impostazioni ripristinati: ${FullBackupManager.lastPrefsRestored}\n")
+                                        if (r != null) {
+                                            append("Repository: ${r.repos}\n")
+                                            append("Plugin nell'elenco: ${r.plugins}\n")
+                                            if (r.downloaded.isNotEmpty()) append("\nScaricati ora: ${r.downloaded.joinToString()}\n")
+                                            if (r.failed.isNotEmpty()) append("\nDa scaricare al riavvio: ${r.failed.joinToString()}\n")
+                                        } else append("Elenco plugin non letto.\n")
+                                        append("\nChiudi del tutto CloudStream (anche dalle app recenti) e riaprilo.")
                                     })
                                     .setPositiveButton("Perfetto", null)
                                     .show()
