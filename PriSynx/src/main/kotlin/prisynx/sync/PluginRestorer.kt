@@ -33,12 +33,17 @@ object PluginRestorer {
     private fun download(url: String, dest: File): Boolean = runCatching {
         dest.parentFile?.mkdirs()
         val tmp = File(dest.parentFile, dest.name + ".part")
-        var conn = URL(url).openConnection() as HttpURLConnection
+        fun open(u: URL) = (u.openConnection() as HttpURLConnection).apply {
+            setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) CloudStream")
+            connectTimeout = 15000
+            readTimeout = 60000
+        }
+        var conn = open(URL(url))
         var hops = 0
         while (conn.responseCode in 300..399 && hops++ < 5) {
             val next = conn.getHeaderField("Location") ?: break
             conn.disconnect()
-            conn = URL(URL(url), next).openConnection() as HttpURLConnection
+            conn = open(URL(URL(url), next))
         }
         if (conn.responseCode !in 200..299) return@runCatching false
         conn.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it) } }
