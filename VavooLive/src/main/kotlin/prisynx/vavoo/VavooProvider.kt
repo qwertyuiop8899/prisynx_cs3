@@ -90,6 +90,9 @@ class VavooProvider : MainAPI() {
         private const val PING = "https://www.vypn.net/api/app/ping"
         private const val CATALOG = "https://vavoo.to/mediahubmx-catalog.json"
         private const val RESOLVE = "https://vavoo.to/mediahubmx-resolve.json"
+        private const val FALLBACK_M3U =
+            "https://raw.githubusercontent.com/qwertyuiop8899/tvvoo/main/src/channels/lista-it.m3u"
+        private val LOGO_RE = Regex("tvg-logo=\"([^\"]*)\"")
         private const val COVERS =
             "https://raw.githubusercontent.com/qwertyuiop8899/tvvoo/main/src/tvvoo-cover-maps.generated.json"
         const val FALLBACK_LOGO = "https://raw.githubusercontent.com/qwertyuiop8899/tvvoo/main/public/tvvoo.png"
@@ -323,6 +326,7 @@ class VavooProvider : MainAPI() {
             cursor = tree.path("nextCursor").takeIf { it.isNumber }?.asInt()
             pages++
         }
+        if (raw.isEmpty() && country == "Italy") raw.addAll(fallbackItaly())
         val list = raw.groupBy { cleanup(it.first).ifBlank { it.first } }
             .map { (base, items) ->
                 val mirrors = items
@@ -334,6 +338,26 @@ class VavooProvider : MainAPI() {
         if (list.isNotEmpty()) synchronized(channels) { channels[country] = now to list }
         return list
     }
+
+    /** Vavoo's catalog endpoint is sometimes down (HTTP 500): use TvVoo's bundled Italian list. */
+    private suspend fun fallbackItaly(): List<Triple<String, String, String?>> = runCatching {
+        val out = ArrayList<Triple<String, String, String?>>()
+        var name: String? = null
+        var logo: String? = null
+        app.get(FALLBACK_M3U, timeout = 30).text.lineSequence().forEach { line ->
+            val l = line.trim()
+            when {
+                l.startsWith("#EXTINF") -> {
+                    name = l.substringAfterLast(",").trim()
+                    logo = LOGO_RE.find(l)?.groupValues?.get(1)?.ifBlank { null }
+                }
+                l.startsWith("http") && !name.isNullOrBlank() -> {
+                    out.add(Triple(name!!, l, logo)); name = null; logo = null
+                }
+            }
+        }
+        out
+    }.getOrDefault(emptyList())
 
     /** ".s" mirrors answer far more often than ".c" ones. */
     private fun mirrorRank(name: String): Int {
