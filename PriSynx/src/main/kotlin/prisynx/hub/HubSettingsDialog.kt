@@ -538,6 +538,16 @@ object HubSettingsDialog {
         keyRow.tag = "debrid_key"
         ui.content.addView(keyRow, rowParams(c))
 
+        ui.content.addView(toggleRow(c, "Solo torrent in cache (niente P2P)",
+            "RD non ha cache check: prova ad avviare, se non parte esce con errore e cancella il torrent. " +
+                "Disattivato: se non in cache parte il magnet in P2P",
+            get = { DebridSettings.cacheOnly },
+            set = {
+                DebridSettings.cacheOnly = it
+                Debrid.clearCache()
+            }
+        ), rowParams(c))
+
         ui.content.addView(actionRow(c, "Apri pagina delle chiavi",
             "Apre ${DebridSettings.services.first { it.id == DebridSettings.service }.keyPage} nel browser"
         ) {
@@ -557,7 +567,7 @@ object HubSettingsDialog {
             refresh(ui, "debrid_key")
         }, rowParams(c))
 
-        heading(ui, "Download", "Con i torrent non in cache il magnet viene inviato al servizio.")
+        heading(ui, "Download", "Solo in modalita' P2P: il magnet non in cache viene inviato al servizio.")
         val wait = DebridSettings.waitSeconds
         val waitRow = actionRow(
             c,

@@ -99,6 +99,23 @@ object DebridSettingsDialog {
             keyField.setText(DebridSettings.apiKey)
         }
 
+        val cacheOnly = RadioGroup(context)
+        val onlyCached = RadioButton(context).apply {
+            id = View.generateViewId()
+            text = "Mostra tutti, riproduci solo quelli in cache " +
+                "(RD non ha cache check: prova ad avviare, se non parte esce con " +
+                "errore e cancella il torrent)"
+            isChecked = DebridSettings.cacheOnly
+        }
+        val p2p = RadioButton(context).apply {
+            id = View.generateViewId()
+            text = "Se non in cache avvia in P2P (magnet)"
+            isChecked = !DebridSettings.cacheOnly
+        }
+        cacheOnly.addView(onlyCached)
+        cacheOnly.addView(p2p)
+        content.addView(cacheOnly)
+
         content.addView(Button(context).apply {
             text = "Apri pagina delle chiavi"
             setOnClickListener {
@@ -134,7 +151,7 @@ object DebridSettingsDialog {
         content.addView(wait)
 
         content.addView(TextView(context).apply {
-            text = "Con l'attesa il magnet viene inviato al servizio: se il download non " +
+            text = "(Solo in modalita' P2P) Con l'attesa il magnet viene inviato al servizio: se il download non " +
                 "e' pronto entro il tempo scelto resta il magnet e al tentativo successivo " +
                 "il link e' diretto."
             textSize = 12f
@@ -173,6 +190,7 @@ object DebridSettingsDialog {
             .setView(scroll)
             .setPositiveButton("Salva") { _, _ ->
                 DebridSettings.enabled = enabled.isChecked
+                DebridSettings.cacheOnly = onlyCached.isChecked
                 DebridSettings.service = selectedService(group)
                 DebridSettings.setApiKey(keyField.text.toString())
                 Debrid.clearCache()

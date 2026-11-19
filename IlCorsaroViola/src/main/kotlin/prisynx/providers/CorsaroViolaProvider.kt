@@ -100,7 +100,20 @@ class CorsaroViolaProvider : TmdbProvider("IlCorsaroViola", "https://corsaroviol
                 emit(
                     callback = callback,
                     url = link.url,
-                    label = "$label \u00B7 $tag",
+                    label = "\u26A1 $label \u00B7 $tag",
+                    quality = t.quality,
+                    type = ExtractorLinkType.VIDEO,
+                    referer = "",
+                    headers = emptyMap()
+                )
+            } else if (DebridSettings.active() && DebridSettings.cacheOnly) {
+                // Not cached and P2P disabled: listed but not playable.
+                val hash = Regex("btih:([a-zA-Z0-9]+)", RegexOption.IGNORE_CASE)
+                    .find(t.magnet)?.groupValues?.get(1)?.lowercase() ?: "x"
+                emit(
+                    callback = callback,
+                    url = "https://non-in-cache.invalid/$hash.mkv",
+                    label = "\u274C $label \u00B7 non in cache $tag",
                     quality = t.quality,
                     type = ExtractorLinkType.VIDEO,
                     referer = "",
@@ -110,7 +123,7 @@ class CorsaroViolaProvider : TmdbProvider("IlCorsaroViola", "https://corsaroviol
                 emit(
                     callback = callback,
                     url = t.magnet,
-                    label = label + if (DebridSettings.active()) " \u00B7 magnet ($tag in download)" else "",
+                    label = label + if (DebridSettings.active()) " \u00B7 P2P (non in cache $tag)" else "",
                     quality = t.quality,
                     type = ExtractorLinkType.MAGNET,
                     referer = "",

@@ -37,6 +37,7 @@ object DebridSettings {
     private const val KEY_SERVICE = "service"
     private const val KEY_WAIT = "wait_seconds"
     private const val DEFAULT_WAIT = 60
+    private const val KEY_CACHE_ONLY = "cache_only"
 
     @Volatile
     private var preferences: SharedPreferences? = null
@@ -85,6 +86,17 @@ object DebridSettings {
         val index = waitChoices.indexOf(waitSeconds)
         return waitChoices[(index + 1) % waitChoices.size]
     }
+
+    /**
+     * true: only torrents cached on the service are playable, the others are
+     * listed as "non in cache" (no P2P). false: not cached torrents fall back
+     * to the magnet (CloudStream P2P).
+     */
+    var cacheOnly: Boolean
+        get() = prefs()?.getBoolean(KEY_CACHE_ONLY, true) ?: true
+        set(value) {
+            prefs()?.edit()?.putBoolean(KEY_CACHE_ONLY, value)?.apply()
+        }
 
     /** API key of the selected service (each service keeps its own). */
     val apiKey: String
@@ -159,8 +171,9 @@ object Debrid {
 
         val service = DebridSettings.service
         val key = DebridSettings.apiKey
-        val waitMs = DebridSettings.waitSeconds * 1000L
-        val inFlight = pending[hash]?.takeIf { it.service == service && it.key == key }
+        val cacheOnly = DebridSettings.cacheOnly
+        val waitMs = if (cacheOnly) 0L else DebridSettings.waitSeconds * 1000L
+        val inFlight = if (cacheOnly) null else pending[hash]?.takeIf { it.service == service && it.key == key }
 
         val link = try {
             withTimeoutOrNull(BASE_TIMEOUT + waitMs + 30_000L) {
@@ -169,7 +182,7 @@ object Debrid {
                     fetchPending(inFlight, if (waitMs == 0L) 3_000L else minOf(waitMs, PENDING_WAIT))
                 } else {
                     when (service) {
-                        "realdebrid" -> realDebrid(magnet, hash, key, waitMs)
+                        "realdebrid" -> realDebrid(magnet, hash, key, waitMs, cacheOnly)
                         "alldebrid" -> allDebrid(magnet, hash, key, waitMs)
                         "torbox" -> torBox(magnet, hash, key, waitMs)
                         else -> null
@@ -256,35 +269,20 @@ object Debrid {
 
     // ------------------------------------------------------------ Real-Debrid
 
-    private suspend fun realDebrid(magnet: String, hash: String, key: String, waitMs: Long): DebridLink? {
+    /**
+     * Real-Debrid has no working cache check (instantAvailability is disabled),
+     * so the magnet is added, the largest video file is selected and the
+     * torrent is polled: a cached one is "downloaded" within a few seconds.
+     * In cache-only mode a torrent that is not ready is deleted again.
+     */
+    private suspend fun realDebrid(
+        magnet: String,
+        hash: String,
+        key: String,
+        waitMs: Long,
+        cacheOnly: Boolean
+    ): DebridLink? {
         val headers = mapOf("Authorization" to "Bearer $key")
-
-        // With no wait only cached torrents are used, so the stream list stays
-        // fast. With a wait the magnet is sent even when it is not cached.
-        var cachedFile: Triple<String, String, Long>? = null
-        var availabilityOk = false
-        try {
-            val availability = json.readTree(
-                net.get("$RD_API/torrents/instantAvailability/$hash", headers = headers, timeout = 20).text
-            )
-            availabilityOk = true
-            val filesNode = availability.path(hash).path("rd")
-            val cached = (filesNode.isObject && filesNode.size() > 0) ||
-                (filesNode.isArray && filesNode.size() > 0)
-            if (cached) {
-                cachedFile = if (filesNode.isObject) {
-                    biggestFile(filesNode)
-                } else {
-                    biggestFile(filesNode.path(0))
-                }
-            }
-        } catch (e: Exception) {
-            // The endpoint is deprecated on some accounts: fall back to adding
-            // the magnet and keeping it only when it is ready in time.
-            availabilityOk = false
-        }
-        if (waitMs == 0L && availabilityOk && cachedFile == null) return null
-
         val added = try {
             json.readTree(
                 net.post(
@@ -300,35 +298,30 @@ object Debrid {
         }
         val id = added.path("id").asText("")
         if (id.isBlank()) return null
+        val probe = cacheOnly || waitMs == 0L
 
-        try {
-            net.post(
-                "$RD_API/torrents/selectFiles/$id",
-                headers = headers,
-                data = null,
-                requestBody = FormBody.Builder().add("files", cachedFile?.first ?: "all").build(),
-                timeout = 25
-            )
-        } catch (e: Exception) {
-            // A not cached torrent can still be converting the magnet: the
-            // selection is retried below while the torrent becomes ready.
+        if (!rdSelectFiles(headers, id, if (probe) 8_000L else minOf(waitMs, 12_000L))) {
+            if (probe) rdDelete(headers, id)
+            return null
         }
+        if (!probe) pending[hash] = Pending("realdebrid", key, id)
+        val link = realDebridReady(key, id, if (probe) 6_000L else waitMs, select = false)
+        if (link == null && probe) rdDelete(headers, id)
+        return link
+    }
 
-        pending[hash] = Pending("realdebrid", key, id)
-        val selectLimit = if (waitMs == 0L) 8_000L else minOf(waitMs, 12_000L)
-        rdSelectFiles(headers, id, cachedFile?.first ?: "all", selectLimit)
-        return realDebridReady(key, id, if (waitMs == 0L) 4_000L else waitMs)
+    private suspend fun rdDelete(headers: Map<String, String>, id: String) {
+        runCatching { net.delete("$RD_API/torrents/delete/$id", headers = headers, timeout = 15) }
     }
 
     /**
      * Real-Debrid only accepts selectFiles once the magnet conversion is done.
-     * Waits for that state and retries, so a not cached torrent actually starts
-     * downloading instead of staying in "waiting_files_selection".
+     * Waits for that state and selects the largest video file (not "all", so
+     * the only link of the torrent is the video and not an nfo or a sample).
      */
     private suspend fun rdSelectFiles(
         headers: Map<String, String>,
         id: String,
-        files: String,
         limitMs: Long
     ): Boolean {
         val deadline = System.currentTimeMillis() + limitMs
@@ -342,12 +335,24 @@ object Debrid {
             }
             when (info?.path("status")?.asText("").orEmpty()) {
                 "waiting_files_selection" -> {
+                    var best = ""
+                    var bestSize = -1L
+                    var bestVideo = false
+                    info?.path("files")?.forEach { file ->
+                        val video = isVideo(file.path("path").asText(""))
+                        val size = file.path("bytes").asLong(0)
+                        if ((video && !bestVideo) || (video == bestVideo && size > bestSize)) {
+                            best = file.path("id").asText("")
+                            bestSize = size
+                            bestVideo = video
+                        }
+                    }
                     val ok = runCatching {
                         net.post(
                             "$RD_API/torrents/selectFiles/$id",
                             headers = headers,
                             data = null,
-                            requestBody = FormBody.Builder().add("files", files).build(),
+                            requestBody = FormBody.Builder().add("files", best.ifBlank { "all" }).build(),
                             timeout = 25
                         )
                     }.isSuccess
@@ -362,16 +367,25 @@ object Debrid {
         }
     }
 
-    private suspend fun realDebridReady(key: String, id: String, limitMs: Long): DebridLink? {
+    private suspend fun realDebridReady(
+        key: String,
+        id: String,
+        limitMs: Long,
+        select: Boolean = true
+    ): DebridLink? {
         val headers = mapOf("Authorization" to "Bearer $key")
         // A pending torrent may still be waiting for the file selection.
-        rdSelectFiles(headers, id, "all", minOf(limitMs, 4_000L))
+        if (select) rdSelectFiles(headers, id, minOf(limitMs, 4_000L))
         val link = waitForLink(limitMs) {
             val info = json.readTree(
                 net.get("$RD_API/torrents/info/$id", headers = headers, timeout = 20).text
             )
             val links = info.path("links")
-            if (links.isArray && links.size() > 0) links.path(0).asText("") else ""
+            if (info.path("status").asText("") == "downloaded" && links.isArray && links.size() > 0) {
+                links.path(0).asText("")
+            } else {
+                ""
+            }
         } ?: return null
 
         val unlocked = json.readTree(
@@ -393,18 +407,10 @@ object Debrid {
         )
     }
 
-    /** (fileId, filename, size) of the largest file inside an availability node. */
-    private fun biggestFile(node: JsonNode): Triple<String, String, Long>? {
-        if (!node.isObject) return null
-        var best: Triple<String, String, Long>? = null
-        node.fields().forEach { (fileId, info) ->
-            val size = info.path("filesize").asLong(0)
-            if (best == null || size > best!!.third) {
-                best = Triple(fileId, info.path("filename").asText(""), size)
-            }
-        }
-        return best
-    }
+    private val videoExt = Regex("\\.(mkv|mp4|avi|m4v|mov|ts|m2ts|webm|wmv|mpg|mpeg)$", RegexOption.IGNORE_CASE)
+
+    private fun isVideo(name: String): Boolean =
+        videoExt.containsMatchIn(name) && !name.contains("sample", ignoreCase = true)
 
     // ------------------------------------------------------------ AllDebrid
 
@@ -493,7 +499,9 @@ object Debrid {
             }
             val data = cached.path("data")
             val isCached = when {
-                data.isArray -> data.any { it.asText("") == hash }
+                data.isArray -> data.any {
+                    (if (it.isTextual) it.asText("") else it.path("hash").asText("")).equals(hash, true)
+                }
                 data.has(hash) -> true
                 else -> false
             }
@@ -523,9 +531,10 @@ object Debrid {
     private suspend fun torBoxReady(key: String, torrentId: Long, limitMs: Long): DebridLink? {
         if (torrentId == 0L) return null
         val headers = mapOf("Authorization" to "Bearer $key")
-        var fileId = 0L
+        var fileId = -1L
         var fileName = ""
         var fileSize = -1L
+        var fileVideo = false
         val deadline = System.currentTimeMillis() + limitMs
 
         while (true) {
@@ -536,23 +545,29 @@ object Debrid {
                     timeout = 20
                 ).text
             )
-            val files = list.path("data").path("files")
-            if (files.isArray) {
+            val data = list.path("data")
+            val ready = data.path("download_finished").asBoolean(false) ||
+                data.path("download_present").asBoolean(false)
+            val files = data.path("files")
+            if (ready && files.isArray) {
                 files.forEach { file ->
-                    val id = file.path("id").asLong(0)
+                    val id = file.path("id").asLong(-1)
+                    val name = file.path("name").asText("")
                     val size = file.path("size").asLong(0)
-                    if (id != 0L && size > fileSize) {
+                    val video = isVideo(name)
+                    if (id >= 0 && ((video && !fileVideo) || (video == fileVideo && size > fileSize))) {
                         fileId = id
-                        fileName = file.path("name").asText("")
+                        fileName = name.substringAfterLast('/')
                         fileSize = size
+                        fileVideo = video
                     }
                 }
             }
-            if (fileId != 0L) break
+            if (fileId >= 0) break
             if (System.currentTimeMillis() >= deadline) break
             delay(1_000)
         }
-        if (fileId == 0L) return null
+        if (fileId < 0) return null
 
         val download = json.readTree(
             net.get(
