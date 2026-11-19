@@ -1,0 +1,88 @@
+[
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/PriSynx.png",
+    "fileHash": "sha256-218db58aa1b7b491259aaf29493b39d14a8a9f3021edd6cec8eca12c6b580159",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 210324,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Others"
+    ],
+    "version": 2,
+    "internalName": "PriSync",
+    "description": "PriSync: salva e ripristina con un PIN tutta la configurazione di CloudStream (repository, plugin, impostazioni dei plugin, cronologia, preferiti). I plugin mancanti vengono riscaricati in automatico al riavvio.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/PriSync.cs3",
+    "name": "PriSync"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/PriSynx.png",
+    "fileHash": "sha256-a965c76c7f4bf7853f74e1421a3aece50183d040b0c4760b869069a56a8c0ef2",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 570949,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Movie",
+      "TvSeries",
+      "Anime",
+      "AsianDrama",
+      "Live"
+    ],
+    "version": 35,
+    "internalName": "PriSynx",
+    "description": "PriSynx: tutte le sorgenti in un'unica estensione (RaiPlay e KissKH inclusi), con menu TV per scegliere provider, ordine, cataloghi TMDB, TopX, anime, RaiPlay, KissKH, servizi debrid (con attesa del download) per IlCorsaroViola.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/PriSynx.cs3",
+    "name": "PriSynx"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/VavooLive.png",
+    "fileHash": "sha256-2cdaa893571a2c8667209d10dc041b6dffe833307055e3c0037a25b2442beff7",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 128567,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Live"
+    ],
+    "version": 6,
+    "internalName": "PriSynxLive",
+    "description": "PriSynx Live: TV in diretta Vavoo (nazioni selezionabili, EPG Italia), eventi sportivi live SportzX ed eventi live Partite.cc (calcio, basket, motori, tennis in diretta HD), con impostazioni per nazioni, sport e canali DRM.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/PriSynxLive.cs3",
+    "name": "PriSynxLive"
+  },
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/RaiPlay.png",
+    "fileHash": "sha256-1cb562f903410af90a585d425ae567b4fc66ee6cedaa1cd52ea378d0a0342029",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 25893,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Movie",
+      "TvSeries",
+      "Live"
+    ],
+    "version": 3,
+    "internalName": "RaiPlay",
+    "description": "RaiPlay: film, serie TV, documentari e dirette Rai (catalogo ufficiale, senza DRM). Disponibile solo da Italia/Europa.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/RaiPlay.cs3",
+    "name": "RaiPlay"
+  }
+]
