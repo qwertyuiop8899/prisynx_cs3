@@ -1,4 +1,4 @@
-version = 6
+version = 7
 
 cloudstream {
     description = "Vavoo Live: canali TV in diretta (Italia di default, altre nazioni selezionabili da PriSynx) con copertine TvVoo."

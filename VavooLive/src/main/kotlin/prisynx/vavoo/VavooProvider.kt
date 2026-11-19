@@ -90,6 +90,7 @@ class VavooProvider : MainAPI() {
         private const val PING = "https://www.vypn.net/api/app/ping"
         private const val CATALOG = "https://vavoo.to/mediahubmx-catalog.json"
         private const val RESOLVE = "https://vavoo.to/mediahubmx-resolve.json"
+        private const val LIVE2_INDEX = "https://vavoo.to/live2/index?output=json"
         private const val FALLBACK_M3U =
             "https://raw.githubusercontent.com/qwertyuiop8899/tvvoo/main/src/channels/lista-it.m3u"
         private val LOGO_RE = Regex("tvg-logo=\"([^\"]*)\"")
@@ -326,6 +327,7 @@ class VavooProvider : MainAPI() {
             cursor = tree.path("nextCursor").takeIf { it.isNumber }?.asInt()
             pages++
         }
+        if (raw.isEmpty()) raw.addAll(live2Index(country))
         if (raw.isEmpty() && country == "Italy") raw.addAll(fallbackItaly())
         val list = raw.groupBy { cleanup(it.first).ifBlank { it.first } }
             .map { (base, items) ->
@@ -338,6 +340,24 @@ class VavooProvider : MainAPI() {
         if (list.isNotEmpty()) synchronized(channels) { channels[country] = now to list }
         return list
     }
+
+    private var live2: Pair<Long, JsonNode>? = null
+
+    /** Public channel index: works when the signed catalog is down; play3 links redirect straight to HLS. */
+    private suspend fun live2Index(country: String): List<Triple<String, String, String?>> = runCatching {
+        val now = System.currentTimeMillis()
+        val tree = live2?.takeIf { now - it.first < CHANNELS_TTL }?.second
+            ?: mapper.readTree(
+                app.get(LIVE2_INDEX, headers = mapOf("User-Agent" to STREAM_UA), timeout = 60).text
+            ).also { live2 = now to it }
+        tree.mapNotNull { node ->
+            val name = node.path("name").asText("").trim()
+            val url = node.path("url").asText("")
+            if (node.path("group").asText("") == country && name.isNotBlank() && url.isNotBlank())
+                Triple(name, url, node.path("logo").asText("").ifBlank { null })
+            else null
+        }
+    }.getOrDefault(emptyList())
 
     /** Vavoo's catalog endpoint is sometimes down (HTTP 500): use TvVoo's bundled Italian list. */
     private suspend fun fallbackItaly(): List<Triple<String, String, String?>> = runCatching {
@@ -444,6 +464,7 @@ class VavooProvider : MainAPI() {
         val streams = coroutineScope {
             ch.mirrors.map { mirror ->
                 async {
+                    if (mirror.url.contains("/live2/")) return@async mirror to mirror.url
                     val tree = api(
                         RESOLVE, RESOLVE_UA, mapOf(
                             "language" to "de",
