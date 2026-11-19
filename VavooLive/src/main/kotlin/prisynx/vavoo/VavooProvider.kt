@@ -91,7 +91,9 @@ class VavooProvider : MainAPI() {
         private const val CATALOG = "https://vavoo.to/mediahubmx-catalog.json"
         private const val RESOLVE = "https://vavoo.to/mediahubmx-resolve.json"
         private val PLAY3 = Regex("/live2/play3/(\\d+)")
-        private const val LIVE2_INDEX = "https://vavoo.to/live2/index?output=json"
+        // Same backend behind several frontends: tried in order
+        private val LIVE2_BASES = listOf("https://vavoo.to", "https://voltop.net", "https://vavoo.net")
+        private val V2_BASES = listOf("https://voltop.net", "https://vavoo.net", "https://kool.to", "https://geil.to")
         private const val FALLBACK_M3U =
             "https://raw.githubusercontent.com/qwertyuiop8899/tvvoo/main/src/channels/lista-it.m3u"
         private val LOGO_RE = Regex("tvg-logo=\"([^\"]*)\"")
@@ -348,15 +350,30 @@ class VavooProvider : MainAPI() {
     private fun playUrl(url: String): String =
         PLAY3.find(url)?.let { "https://vavoo.to/vavoo-iptv/play/${it.groupValues[1]}000000000000" } ?: url
 
+    /** Unsigned v2 resolve (GET /live/resolve), used when the signed API fails. */
+    private suspend fun resolveV2(id: String): String? = V2_BASES.firstNotNullOfOrNull { base ->
+        runCatching {
+            val text = app.get(
+                "$base/live/resolve", params = mapOf("url" to "$base/live/play/$id"),
+                headers = mapOf("User-Agent" to RESOLVE_UA), timeout = 15
+            ).text
+            mapper.readTree(text).path("url").asText("").takeIf { it.startsWith("http") }
+        }.getOrNull()
+    }
+
     private var live2: Pair<Long, JsonNode>? = null
 
     /** Public channel index: works when the signed catalog is down; play3 links redirect straight to HLS. */
     private suspend fun live2Index(country: String): List<Triple<String, String, String?>> = runCatching {
         val now = System.currentTimeMillis()
         val tree = live2?.takeIf { now - it.first < CHANNELS_TTL }?.second
-            ?: mapper.readTree(
-                app.get(LIVE2_INDEX, headers = mapOf("User-Agent" to STREAM_UA), timeout = 60).text
-            ).also { live2 = now to it }
+            ?: LIVE2_BASES.firstNotNullOfOrNull { base ->
+                runCatching {
+                    mapper.readTree(
+                        app.get("$base/live2/index?output=json", headers = mapOf("User-Agent" to STREAM_UA), timeout = 30).text
+                    ).takeIf { it.isArray && it.size() > 0 }
+                }.getOrNull()
+            }?.also { live2 = now to it } ?: return@runCatching emptyList()
         tree.mapNotNull { node ->
             val name = node.path("name").asText("").trim()
             val url = node.path("url").asText("")
@@ -480,7 +497,9 @@ class VavooProvider : MainAPI() {
                         )
                     )
                     val stream = tree?.takeIf { it.isArray && it.size() > 0 }?.get(0)?.path("url")?.asText("")
-                    stream?.takeIf { it.isNotBlank() }?.let { mirror to it }
+                        ?.takeIf { it.isNotBlank() }
+                        ?: PLAY3.find(mirror.url)?.groupValues?.get(1)?.let { resolveV2(it) }
+                    stream?.let { mirror to it }
                 }
             }.awaitAll().filterNotNull()
         }
