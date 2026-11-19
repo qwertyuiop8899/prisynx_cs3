@@ -441,8 +441,24 @@ class VavooProvider : MainAPI() {
                     url = stream,
                     type = ExtractorLinkType.M3U8
                 ) {
-                    headers = mapOf("User-Agent" to STREAM_UA)
+                    referer = "https://vavoo.to/"
+                    headers = mapOf(
+                        "User-Agent" to API_UA,
+                        "Referer" to "https://vavoo.to/",
+                        "Origin" to "https://vavoo.to"
+                    )
                     quality = Qualities.P1080.value - index
+                }
+            )
+            callback(
+                newExtractorLink(
+                    source = name,
+                    name = "Vavoo ${index + 1} · ${mirror.name} (Clean)",
+                    url = stream,
+                    type = ExtractorLinkType.M3U8
+                ) {
+                    headers = mapOf("User-Agent" to STREAM_UA)
+                    quality = Qualities.P720.value - index
                 }
             )
         }
