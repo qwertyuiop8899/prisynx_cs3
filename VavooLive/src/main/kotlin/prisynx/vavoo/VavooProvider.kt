@@ -90,6 +90,7 @@ class VavooProvider : MainAPI() {
         private const val PING = "https://www.vypn.net/api/app/ping"
         private const val CATALOG = "https://vavoo.to/mediahubmx-catalog.json"
         private const val RESOLVE = "https://vavoo.to/mediahubmx-resolve.json"
+        private val PLAY3 = Regex("/live2/play3/(\\d+)")
         private const val LIVE2_INDEX = "https://vavoo.to/live2/index?output=json"
         private const val FALLBACK_M3U =
             "https://raw.githubusercontent.com/qwertyuiop8899/tvvoo/main/src/channels/lista-it.m3u"
@@ -299,41 +300,42 @@ class VavooProvider : MainAPI() {
             channels[country]?.let { (at, list) -> if (now - at < CHANNELS_TTL && list.isNotEmpty()) return list }
         }
         val maps = coverMaps()
-        val raw = ArrayList<Triple<String, String, String?>>()
-        var cursor: Int? = 0
-        var pages = 0
-        while (cursor != null && pages < 20) {
-            val tree = api(
-                CATALOG, API_UA, mapOf(
-                    "language" to "de",
-                    "region" to "AT",
-                    "catalogId" to "iptv",
-                    "id" to "iptv",
-                    "adult" to false,
-                    "search" to "",
-                    "sort" to "name",
-                    "filter" to mapOf("group" to country),
-                    "cursor" to cursor,
-                    "clientVersion" to "3.1.0"
-                )
-            ) ?: break
-            tree.path("items").forEach { node ->
-                val name = node.path("name").asText("").trim()
-                val url = node.path("url").asText("")
-                if (name.isNotBlank() && url.isNotBlank() && node.path("group").asText(country) == country) {
-                    raw.add(Triple(name, url, node.path("logo").asText("").ifBlank { null }))
+        // live2 covers every country and its ids resolve through the signed API (see playUrl)
+        val raw = ArrayList<Triple<String, String, String?>>(live2Index(country))
+        if (raw.isEmpty()) {
+            var cursor: Int? = 0
+            var pages = 0
+            while (cursor != null && pages < 20) {
+                val tree = api(
+                    CATALOG, API_UA, mapOf(
+                        "language" to "de",
+                        "region" to "AT",
+                        "catalogId" to "iptv",
+                        "id" to "iptv",
+                        "adult" to false,
+                        "search" to "",
+                        "sort" to "name",
+                        "filter" to mapOf("group" to country),
+                        "cursor" to cursor,
+                        "clientVersion" to "3.1.0"
+                    )
+                ) ?: break
+                tree.path("items").forEach { node ->
+                    val name = node.path("name").asText("").trim()
+                    val url = node.path("url").asText("")
+                    if (name.isNotBlank() && url.isNotBlank() && node.path("group").asText(country) == country) {
+                        raw.add(Triple(name, url, node.path("logo").asText("").ifBlank { null }))
+                    }
                 }
+                cursor = tree.path("nextCursor").takeIf { it.isNumber }?.asInt()
+                pages++
             }
-            cursor = tree.path("nextCursor").takeIf { it.isNumber }?.asInt()
-            pages++
         }
         if (raw.isEmpty() && country == "Italy") raw.addAll(fallbackItaly())
-        // play3 mirrors are appended to every channel as fallback for the signed resolve
-        raw.addAll(live2Index(country))
         val list = raw.groupBy { cleanup(it.first).ifBlank { it.first }.uppercase() }
             .map { (base, items) ->
                 val mirrors = items
-                    .sortedWith(compareBy({ it.second.contains("/live2/") }, { mirrorRank(it.first) }))
+                    .sortedBy { mirrorRank(it.first) }
                     .map { Mirror(it.first, it.second) }
                 Channel(country, base, coverOf(items.map { it.first }, country, maps), mirrors)
             }
@@ -341,6 +343,10 @@ class VavooProvider : MainAPI() {
         if (list.isNotEmpty()) synchronized(channels) { channels[country] = now to list }
         return list
     }
+
+    /** live2 play3 ids resolve through the signed API once padded with 12 zeros. */
+    private fun playUrl(url: String): String =
+        PLAY3.find(url)?.let { "https://vavoo.to/vavoo-iptv/play/${it.groupValues[1]}000000000000" } ?: url
 
     private var live2: Pair<Long, JsonNode>? = null
 
@@ -462,16 +468,15 @@ class VavooProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val ch = channelOf(data) ?: return false
-        val streams = coroutineScope {
+        val resolved = coroutineScope {
             ch.mirrors.map { mirror ->
                 async {
-                    if (mirror.url.contains("/live2/")) return@async mirror to mirror.url
                     val tree = api(
                         RESOLVE, RESOLVE_UA, mapOf(
                             "language" to "de",
                             "region" to "AT",
-                            "url" to mirror.url,
-                            "clientVersion" to "3.1.0"
+                            "url" to playUrl(mirror.url),
+                            "clientVersion" to "3.0.2"
                         )
                     )
                     val stream = tree?.takeIf { it.isArray && it.size() > 0 }?.get(0)?.path("url")?.asText("")
@@ -479,11 +484,14 @@ class VavooProvider : MainAPI() {
                 }
             }.awaitAll().filterNotNull()
         }
+        val direct = ch.mirrors.filter { PLAY3.containsMatchIn(it.url) }.map { it to it.url }
+        val streams = resolved + direct
         streams.forEachIndexed { index, (mirror, stream) ->
+            val fallback = index >= resolved.size
             callback(
                 newExtractorLink(
                     source = name,
-                    name = "Vavoo ${index + 1} · ${mirror.name}",
+                    name = "Vavoo ${index + 1} · ${mirror.name}" + if (fallback) " (play3)" else "",
                     url = stream,
                     type = ExtractorLinkType.M3U8
                 ) {
@@ -494,17 +502,6 @@ class VavooProvider : MainAPI() {
                         "Origin" to "https://vavoo.to"
                     )
                     quality = Qualities.P1080.value - index
-                }
-            )
-            callback(
-                newExtractorLink(
-                    source = name,
-                    name = "Vavoo ${index + 1} · ${mirror.name} (Clean)",
-                    url = stream,
-                    type = ExtractorLinkType.M3U8
-                ) {
-                    headers = mapOf("User-Agent" to STREAM_UA)
-                    quality = Qualities.P720.value - index
                 }
             )
         }
