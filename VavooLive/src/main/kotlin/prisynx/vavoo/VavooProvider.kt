@@ -327,12 +327,13 @@ class VavooProvider : MainAPI() {
             cursor = tree.path("nextCursor").takeIf { it.isNumber }?.asInt()
             pages++
         }
-        if (raw.isEmpty()) raw.addAll(live2Index(country))
         if (raw.isEmpty() && country == "Italy") raw.addAll(fallbackItaly())
-        val list = raw.groupBy { cleanup(it.first).ifBlank { it.first } }
+        // play3 mirrors are appended to every channel as fallback for the signed resolve
+        raw.addAll(live2Index(country))
+        val list = raw.groupBy { cleanup(it.first).ifBlank { it.first }.uppercase() }
             .map { (base, items) ->
                 val mirrors = items
-                    .sortedBy { mirrorRank(it.first) }
+                    .sortedWith(compareBy({ it.second.contains("/live2/") }, { mirrorRank(it.first) }))
                     .map { Mirror(it.first, it.second) }
                 Channel(country, base, coverOf(items.map { it.first }, country, maps), mirrors)
             }
