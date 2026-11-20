@@ -189,6 +189,19 @@ object HubSettings {
     fun isRaiRowEnabled(key: String) = bool("rai_row_$key", true)
     fun setRaiRowEnabled(key: String, on: Boolean) = setBool("rai_row_$key", on)
 
+    // ------------------------------------------------------------ Real Time
+
+    var realtimeHome: Boolean
+        get() = bool("realtime_home", true)
+        set(value) = setBool("realtime_home", value)
+
+    var realtimeSearch: Boolean
+        get() = bool("realtime_search", true)
+        set(value) = setBool("realtime_search", value)
+
+    fun isRealtimeRowEnabled(key: String) = bool("realtime_row_$key", true)
+    fun setRealtimeRowEnabled(key: String, on: Boolean) = setBool("realtime_row_$key", on)
+
     // ------------------------------------------------------------ KissKH
 
     var kisskhHome: Boolean
@@ -228,6 +241,7 @@ object HubSettings {
         "tmdb" to "Cataloghi TMDB",
         "kitsu" to "Anime (Kitsu)",
         "rai" to "RaiPlay",
+        "realtime" to "Real Time",
         "kisskh" to "KissKH"
     )
 
@@ -236,11 +250,18 @@ object HubSettings {
         val saved = prefs?.getString("home_order", null)
             ?.split(',')?.filter { it in ids }?.distinct() ?: emptyList()
         val fallback = if (topxFirst) {
-            listOf("topx", "tmdb", "kitsu", "rai", "kisskh")
+            listOf("topx", "tmdb", "kitsu", "rai", "realtime", "kisskh")
         } else {
-            listOf("tmdb", "topx", "kitsu", "rai", "kisskh")
+            listOf("tmdb", "topx", "kitsu", "rai", "realtime", "kisskh")
         }
-        return saved + fallback.filter { it !in saved }
+        // Older builds saved the order before Real Time existed: insert it
+        // right before KissKH instead of leaving it at the end.
+        val order = saved.toMutableList()
+        if (order.isNotEmpty() && "realtime" !in order) {
+            val kisskh = order.indexOf("kisskh")
+            if (kisskh >= 0) order.add(kisskh, "realtime") else order.add("realtime")
+        }
+        return order + fallback.filter { it !in order }
     }
 
     fun saveHomeOrder(order: List<String>) {
