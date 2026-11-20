@@ -48,7 +48,9 @@ object HubSettingsDialog {
     private const val ON = 0xFF8B5CF6.toInt()
     private const val OFF = 0xFF3A3347.toInt()
 
-    private val tabs = listOf("Provider", "Home", "TopX", "Anime", "KissKH", "RaiPlay", "Debrid", "Altro")
+    private val tabs = listOf(
+        "Provider", "Home", "TopX", "Anime", "KissKH", "RaiPlay", "Real Time", "Debrid", "Altro"
+    )
 
     private class Ui(val context: Context, val content: LinearLayout, val scroll: ScrollView) {
         val tabViews = mutableListOf<TextView>()
@@ -162,14 +164,15 @@ object HubSettingsDialog {
         ui.generation++
         ui.tabViews.forEachIndexed { i, t -> t.isSelected = i == index }
         ui.content.removeAllViews()
-        when (index) {
-            0 -> providerTab(ui)
-            1 -> homeTab(ui)
-            2 -> topxTab(ui)
-            3 -> animeTab(ui)
-            4 -> kisskhTab(ui)
-            5 -> raiTab(ui)
-            6 -> debridTab(ui)
+        when (tabs.getOrNull(index)) {
+            "Provider" -> providerTab(ui)
+            "Home" -> homeTab(ui)
+            "TopX" -> topxTab(ui)
+            "Anime" -> animeTab(ui)
+            "KissKH" -> kisskhTab(ui)
+            "RaiPlay" -> raiTab(ui)
+            "Real Time" -> realtimeTab(ui)
+            "Debrid" -> debridTab(ui)
             else -> otherTab(ui)
         }
         ui.scroll.scrollTo(0, 0)
@@ -496,6 +499,34 @@ object HubSettingsDialog {
         )
     }
 
+    // ------------------------------------------------------------ Real Time
+
+    private fun realtimeTab(ui: Ui) {
+        val c = ui.context
+        heading(ui, "Real Time",
+            "Programmi di Real Time, NOVE, DMAX e Food Network dentro PriSynx (solo Italia).")
+        ui.content.addView(toggleRow(c, "Righe Real Time in home", null,
+            get = { HubSettings.realtimeHome },
+            set = { HubSettings.realtimeHome = it }
+        ), rowParams(c))
+        ui.content.addView(toggleRow(c, "Risultati Real Time nella ricerca", null,
+            get = { HubSettings.realtimeSearch },
+            set = { HubSettings.realtimeSearch = it }
+        ), rowParams(c))
+
+        heading(ui, "Canali Real Time", "Scegli quali righe dei canali mostrare nella home.")
+        asyncList(ui,
+            load = { runBlocking { RealtimeHub.rows() }.map { RealtimeHub.key(it) to it.name } },
+            isOn = { HubSettings.isRealtimeRowEnabled(it) },
+            setOn = { key, on -> HubSettings.setRealtimeRowEnabled(key, on) },
+            empty = "Real Time non raggiungibile (serve una connessione italiana)."
+        )
+        ui.content.addView(actionRow(c, "Ricarica righe Real Time", null) {
+            RealtimeHub.clearCache()
+            refresh(ui)
+        }, rowParams(c))
+    }
+
     // ------------------------------------------------------------ Debrid
 
     private fun debridTab(ui: Ui) {
@@ -668,7 +699,7 @@ object HubSettingsDialog {
 
         heading(ui, "Ripristino", null)
         ui.content.addView(actionRow(c, "Ripristina impostazioni predefinite",
-            "Provider, ordine, cataloghi, TopX, anime, RaiPlay, KissKH, TV e debrid") {
+            "Provider, ordine, cataloghi, TopX, anime, RaiPlay, Real Time, KissKH, TV e debrid") {
             AlertDialog.Builder(c)
                 .setTitle("Ripristinare tutto?")
                 .setMessage("Tutte le impostazioni di PriSynx torneranno ai valori predefiniti.")
@@ -676,6 +707,7 @@ object HubSettingsDialog {
                     HubSettings.resetAll()
                     TopX.clearCache()
                     KissKHHub.clearCache()
+                    RealtimeHub.clearCache()
                     toast(c, "Impostazioni ripristinate")
                     refresh(ui)
                 }

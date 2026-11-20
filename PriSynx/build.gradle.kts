@@ -20,10 +20,10 @@ android {
 
 tasks.named("preBuild").configure { dependsOn(syncHubSources) }
 
-version = 35
+version = 36
 
 cloudstream {
-    description = "PriSynx: tutte le sorgenti in un'unica estensione (RaiPlay e KissKH inclusi), con menu TV per scegliere provider, ordine, cataloghi TMDB, TopX, anime, RaiPlay, KissKH, servizi debrid (con attesa del download) per IlCorsaroViola."
+    description = "PriSynx: tutte le sorgenti in un'unica estensione (RaiPlay e KissKH inclusi), con menu TV per scegliere provider, ordine, cataloghi TMDB, TopX, anime, RaiPlay, Real Time, KissKH, servizi debrid (con attesa del download) per IlCorsaroViola."
     authors = listOf("PriSynx")
     status = 1
     tvTypes = listOf("Movie", "TvSeries", "Anime", "AsianDrama", "Live")

@@ -121,21 +121,24 @@ Provider singoli disponibili: `Altadefinizione`, `AnimeSaturn`, `AnimeUnity`, `A
 
 ### 🧩 PriSynx (hub con menu)
 
-L'estensione **PriSynx** raccoglie in un'unica sorgente tutti i provider, **RaiPlay** e **KissKH**: al click su un titolo TMDB interroga in parallelo le sorgenti attive e invia i link nell'ordine scelto; le righe e i risultati RaiPlay (film, serie, documentari, dirette) si aprono e si riproducono direttamente dal catalogo Rai, mentre KissKH usa il proprio catalogo nativo (drama e film asiatici).
+L'estensione **PriSynx** raccoglie in un'unica sorgente tutti i provider, **RaiPlay** e **KissKH**: al click su un titolo TMDB interroga in parallelo le sorgenti attive e invia i link nell'ordine scelto; le righe e i risultati RaiPlay (film, serie, documentari, dirette) si aprono e si riproducono direttamente dal catalogo Rai, le righe e i risultati Real Time/NOVE/DMAX/Food Network si aprono dal catalogo Discovery, mentre KissKH usa il proprio catalogo nativo (drama e film asiatici).
 Dal pulsante ⚙️ dell'estensione (*Impostazioni → Estensioni → PriSynx*) si apre il menu a schermo intero, pensato per il telecomando (frecce + OK, *Indietro* per chiudere; ogni modifica è salvata subito, ricarica la home per vederla):
 
 | Scheda | Cosa si può fare |
 | :--- | :--- |
 | **Provider** | OK su una riga = ON/OFF; ▲/▼ a destra per l'ordine dei link; *Attiva tutti* / *Disattiva tutti* |
-| **Home** | Ordine delle sezioni (TopX, TMDB, Anime Kitsu, RaiPlay, KissKH) e righe TMDB: Tendenze, Film/Serie popolari, Film/Serie più votati (attive di default), Al cinema, In arrivo, Serie in onda |
+| **Home** | Ordine delle sezioni (TopX, TMDB, Anime Kitsu, RaiPlay, Real Time, KissKH) e righe TMDB: Tendenze, Film/Serie popolari, Film/Serie più votati (attive di default), Al cinema, In arrivo, Serie in onda |
 | **TopX** | Mostrare/nascondere TopX, **stile Portrait o Landscape** (copertine fresh verticali o orizzontali, con un manifest per stile), cambiare/ripristinare l'URL del manifest dello stile attivo, mostrare/nascondere i singoli cataloghi e **ordinarli** con ▲ ▼ |
 | **Anime** | Anime dal catalogo **Kitsu** (righe in home: tendenza, in corso, più popolari, più votati; risultati nella ricerca) e opzione per nascondere gli anime giapponesi da TMDB |
 | **RaiPlay** | Righe RaiPlay in home e risultati RaiPlay nella ricerca (ON/OFF), scelta delle singole righe RaiPlay |
+| **Real Time** | Righe Real Time/NOVE/DMAX/Food Network in home e risultati Real Time nella ricerca (ON/OFF), scelta dei singoli canali, ricarica delle righe |
 | **KissKH** | Righe KissKH in home e risultati KissKH nella ricerca (ON/OFF), scelta dei cataloghi (drama/film coreani, giapponesi, thailandesi, anime) e impostazioni KissKH (URL, chiave DeepL, lingua di traduzione, filtro adulti) |
 | **Debrid** | Sblocco dei magnet di **IlCorsaroViola** in link diretti con **Real-Debrid**, **AllDebrid** o **TorBox**: scelta del servizio, chiave API (con verifica dell'account), ON/OFF e **attesa massima** del download (0/20/40/60/90/120 s) |
 | **Altro** | **Sincronizzazione Cloud E2EE (PriSynx Vault)** con PIN a 6 cifre, numero massimo di torrent IlCorsaroViola, **Movy/DualSync: solo link sincronizzati**, ripristino impostazioni |
 
 **KissKH nel hub**: le righe native compaiono in home (se attive) e i risultati nella ricerca; aprendo una scheda, episodi e stream vengono risolti da KissKH. La voce *Provider* include KissKH come sorgente per i titoli TMDB: si può disattivare o spostare nell'ordine come le altre.
+
+**Real Time nel hub**: le righe native di Real Time, NOVE, DMAX e Food Network compaiono in home (se attive, solo da Italia) e i risultati nella ricerca; aprendo una scheda, episodi e stream vengono risolti da Discovery. La voce *Provider* include Real Time come sorgente per i titoli TMDB: si può disattivare o spostare nell'ordine come le altre.
 
 **KissKH e relay Cloudflare (opzionale)**: KissKH è protetto da Cloudflare e da alcune reti le richieste ricevono una *challenge* (`403` con `cf-mitigated: challenge`), quindi catalogo vuoto e niente riproduzione. Se succede solo a te e non ad altri utenti, il problema è la reputazione del tuo IP, non il plugin. Dal campo **Relay Cloudflare** nelle impostazioni KissKH si può indicare un relay fidato che esegua le richieste al posto dell'app:
 

@@ -17,6 +17,9 @@ import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 import prisynx.providers.core.MediaMeta
@@ -218,31 +221,34 @@ class RealtimeProvider : TmdbProvider("Real Time", "https://realtime.it") {
         }
     }
 
-    private suspend fun catalogRows(): List<HomePageList> {
-        val rows = mutableListOf<HomePageList>()
-        val featured = mutableListOf<SearchResponse>()
-
-        for (channel in channels) {
-            val page = fetchHome(channel) ?: continue
-            val shows = LinkedHashMap<String, SearchResponse>()
-            for (block in page.path("blocks")) {
-                if (block.path("type").asText("") != "collectionBlock") continue
-                for (item in block.path("items")) {
-                    val card = catalogCard(item, channel) ?: continue
-                    val slug = item.path("slug").asText("").ifBlank { item.path("url").asText("") }
-                    if (!shows.containsKey(slug)) shows[slug] = card
+    private suspend fun catalogRows(): List<HomePageList> = coroutineScope {
+        val perChannel = channels.map { channel ->
+            async {
+                val page = fetchHome(channel) ?: return@async null
+                val shows = LinkedHashMap<String, SearchResponse>()
+                for (block in page.path("blocks")) {
+                    if (block.path("type").asText("") != "collectionBlock") continue
+                    for (item in block.path("items")) {
+                        val card = catalogCard(item, channel) ?: continue
+                        val slug = item.path("slug").asText("").ifBlank { item.path("url").asText("") }
+                        if (!shows.containsKey(slug)) shows[slug] = card
+                    }
                 }
+                val list = shows.values.toList()
+                if (list.isEmpty()) null else channel.label to list.take(80)
             }
-            val list = shows.values.toList()
-            if (list.isNotEmpty()) {
-                rows.add(HomePageList(channel.label, list.take(80)))
-                featured.add(list.first())
-            }
-        }
+        }.awaitAll().filterNotNull()
 
-        if (rows.isEmpty()) return emptyList()
-        return listOf(HomePageList("In evidenza", featured)) + rows
+        if (perChannel.isEmpty()) return@coroutineScope emptyList()
+        listOf(HomePageList("In evidenza", perChannel.map { it.second.first() })) +
+            perChannel.map { HomePageList(it.first, it.second) }
     }
+
+    /** Discovery catalogue rows (also used by the PriSynx hub). */
+    suspend fun catalogueRows(): List<HomePageList> = catalogRows()
+
+    /** True for the native show/episode pages built by this provider. */
+    fun ownsUrl(url: String): Boolean = parseNative(url) != null
 
     @Volatile
     private var homeCacheAt: Long = 0L
@@ -304,20 +310,30 @@ class RealtimeProvider : TmdbProvider("Real Time", "https://realtime.it") {
         return runCatching { json.readTree(body).path("data").toList() }.getOrDefault(emptyList())
     }
 
-    override suspend fun search(query: String): List<SearchResponse> {
-        if (query.isBlank()) return emptyList()
+    private suspend fun nativeSearch(query: String): List<SearchResponse> = coroutineScope {
         val out = mutableListOf<SearchResponse>()
         val seen = mutableSetOf<String>()
-        for (channel in channels) {
-            for (item in searchChannel(channel, query)) {
+        val pages = channels.map { channel -> async { searchChannel(channel, query) } }.awaitAll()
+        for ((index, items) in pages.withIndex()) {
+            val channel = channels[index]
+            for (item in items) {
                 if (item.path("type").asText("") != "showpage") continue
                 val card = catalogCard(item, channel) ?: continue
                 val slug = item.path("slug").asText("").ifBlank { item.path("url").asText("") }
                 if (seen.add("${channel.env}:$slug")) out.add(card)
             }
         }
+        out
+    }
+
+    /** Discovery-only search (no TMDB fallback), used by the PriSynx hub. */
+    internal suspend fun searchNative(query: String): List<SearchResponse> =
+        if (query.isBlank()) emptyList() else nativeSearch(query)
+
+    override suspend fun search(query: String): List<SearchResponse> {
+        if (query.isBlank()) return emptyList()
         // Keep TMDB as a fallback for older links or a temporary Aurora outage.
-        return out.ifEmpty { super.search(query) }
+        return nativeSearch(query).ifEmpty { super.search(query) }
     }
 
     // ------------------------------------------------------------ show pages
