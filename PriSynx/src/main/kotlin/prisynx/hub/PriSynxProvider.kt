@@ -38,6 +38,9 @@ class PriSynxProvider : TmdbProvider("PriSynx", "https://www.themoviedb.org") {
             val tmdbJob = rows.map { spec -> async { fetchRow(spec.row, page) } }
             val topxJob = async { if (page <= 1 && HubSettings.topxEnabled) topxRows() else emptyList() }
             val raiJob = async { if (page <= 1 && HubSettings.raiHome) raiRows() else emptyList() }
+            val realtimeJob = async {
+                if (page <= 1 && HubSettings.realtimeHome) realtimeRows() else emptyList()
+            }
             val kitsuJob = async { if (HubSettings.kitsuHome) kitsuRows(page) else emptyList() }
             val kisskhJob = async {
                 if (HubSettings.kisskhHome) KissKHHub.rows(page) else KissKHHub.Home.EMPTY
@@ -46,6 +49,7 @@ class PriSynxProvider : TmdbProvider("PriSynx", "https://www.themoviedb.org") {
             val tmdbLists = tmdb.filter { it.list.isNotEmpty() }.map { HomePageList(it.name, it.list) }
             val topx = topxJob.await()
             val rai = raiJob.await()
+            val realtime = realtimeJob.await()
             val kitsu = kitsuJob.await()
             val kisskh = kisskhJob.await()
             val groups = mapOf(
@@ -53,6 +57,7 @@ class PriSynxProvider : TmdbProvider("PriSynx", "https://www.themoviedb.org") {
                 "topx" to topx,
                 "kitsu" to kitsu,
                 "rai" to rai,
+                "realtime" to realtime,
                 "kisskh" to KissKHHub.visibleRows(kisskh.rows)
             )
             val lists = HubSettings.homeOrder().flatMap { groups[it].orEmpty() }
@@ -67,6 +72,10 @@ class PriSynxProvider : TmdbProvider("PriSynx", "https://www.themoviedb.org") {
         RaiHub.rows()
             .filter { HubSettings.isRaiRowEnabled(RaiHub.key(it)) }
             .map { HomePageList("RaiPlay · ${it.name}", it.list, isHorizontalImages = true) }
+
+    private suspend fun realtimeRows(): List<HomePageList> =
+        RealtimeHub.visibleRows(RealtimeHub.rows())
+            .map { HomePageList("Real Time · ${it.name}", it.list) }
 
     // ------------------------------------------------------------ Anime (Kitsu)
 
@@ -120,6 +129,16 @@ class PriSynxProvider : TmdbProvider("PriSynx", "https://www.themoviedb.org") {
                 }
             } ?: emptyList()
         }
+        val realtime = async {
+            if (!HubSettings.realtimeSearch) emptyList()
+            else withTimeoutOrNull(REALTIME_TIMEOUT_MS) {
+                try {
+                    RealtimeHub.api.searchNative(query)
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            } ?: emptyList()
+        }
         val kisskh = async {
             if (!HubSettings.kisskhSearch) emptyList()
             else withTimeoutOrNull(KISSKH_TIMEOUT_MS) {
@@ -139,7 +158,7 @@ class PriSynxProvider : TmdbProvider("PriSynx", "https://www.themoviedb.org") {
         } catch (e: Exception) {
             emptyList()
         }
-        tmdb + kitsu.await() + rai.await() + kisskh.await()
+        tmdb + kitsu.await() + rai.await() + realtime.await() + kisskh.await()
     }
 
     override suspend fun load(url: String): LoadResponse {
@@ -152,6 +171,7 @@ class PriSynxProvider : TmdbProvider("PriSynx", "https://www.themoviedb.org") {
         }
         if (KitsuRef.parse(url) != null) return super.load(url)
         if (KissKHHub.isKissUrl(url)) return KissKHHub.api.load(url)
+        if (RealtimeHub.isNativeUrl(url)) return RealtimeHub.api.load(url)
         return RaiHub.api.load(url)
             ?: throw com.lagradost.cloudstream3.ErrorLoadingException("RaiPlay: contenuto non disponibile")
     }
@@ -167,6 +187,9 @@ class PriSynxProvider : TmdbProvider("PriSynx", "https://www.themoviedb.org") {
         }
         if (KissKHHub.isKissUrl(data)) {
             return KissKHHub.api.loadLinks(data, isCasting, subtitleCallback, callback)
+        }
+        if (RealtimeHub.isNativeUrl(data)) {
+            return RealtimeHub.api.loadLinks(data, isCasting, subtitleCallback, callback)
         }
         return RaiHub.api.loadLinks(data, isCasting, subtitleCallback, callback)
     }
@@ -276,6 +299,7 @@ class PriSynxProvider : TmdbProvider("PriSynx", "https://www.themoviedb.org") {
     private companion object {
         const val SOURCE_TIMEOUT_MS = 60_000L
         const val RAI_TIMEOUT_MS = 20_000L
+        const val REALTIME_TIMEOUT_MS = 20_000L
         const val KISSKH_TIMEOUT_MS = 20_000L
     }
 }
