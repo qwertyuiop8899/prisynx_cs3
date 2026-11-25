@@ -36,7 +36,7 @@ import java.util.TimeZone
  */
 class MatchoraProvider : MainAPI() {
     override var mainUrl = MatchoraEngine.MATCHORA_BASE
-    override var name = "HTSport · Matchora"
+    override var name = "HTSport"
     override val supportedTypes = setOf(TvType.Live)
     override var lang = "it"
     override val hasMainPage = true
@@ -176,20 +176,20 @@ class MatchoraProvider : MainAPI() {
             htDef.await()?.channels
                 ?.filter { it.page.equals("rai1.htm", true) || it.page.equals("rai2.htm", true) }
                 ?.forEach { cards += htChCard(it) }
-            rows += HomePageList("📺 Canali Italiani (HTSport)", cards, false)
+            rows += HomePageList("📺 Canali Italiani", cards, false)
         }
 
         if (LiveSettings.mxLive) {
             val live = liveDef.await()
             if (live.isNotEmpty()) {
-                rows += HomePageList("🔴 In diretta ora (Matchora)", live.map(::evCard), false)
+                rows += HomePageList("🔴 In diretta ora", live.map(::evCard), false)
             }
         }
 
         if (LiveSettings.mxHtMatches) {
             val matches = htDef.await()?.matches.orEmpty()
             if (matches.isNotEmpty()) {
-                rows += HomePageList("⚽ Partite del giorno (HTSport)", matches.map(::htMatchCard), false)
+                rows += HomePageList("⚽ Partite del giorno", matches.map(::htMatchCard), false)
             }
         }
 
@@ -207,7 +207,7 @@ class MatchoraProvider : MainAPI() {
                     ).take(30)
                     if (ordered.isNotEmpty()) {
                         rows += HomePageList(
-                            "${sportEmoji(sport)} ${sportLabelIt(sport)} · Matchora",
+                            "${sportEmoji(sport)} ${sportLabelIt(sport)}",
                             ordered.map(::evCard),
                             false
                         )
@@ -219,7 +219,7 @@ class MatchoraProvider : MainAPI() {
             val mainIds = MatchoraEngine.FALLBACK_IT_CHANNELS.map { it.id }.toSet()
             val extra = itChDef.await().filter { it.id !in mainIds }.take(60)
             if (extra.isNotEmpty()) {
-                rows += HomePageList("🇮🇹 Altri canali IT (Matchora)", extra.map(::chCard), false)
+                rows += HomePageList("🇮🇹 Altri canali IT", extra.map(::chCard), false)
             }
         }
 
@@ -278,10 +278,10 @@ class MatchoraProvider : MainAPI() {
                 val q = queryParam(url, "q").orEmpty()
                 return newLiveStreamLoadResponse(title, url, url) {
                     posterUrl = FALLBACK_POSTER
-                    plot = "📺 Canale TV in diretta via HTSport · Matchora" +
+                    plot = "📺 Canale TV in diretta su HTSport" +
                         (if (q.isNotBlank()) " ($q)" else "") +
                         "<br><br>Decodifica segmenti integrata nel player CloudStream."
-                    tags = listOfNotNull("Live", "Matchora", q.takeIf { it.isNotBlank() })
+                    tags = listOfNotNull("Live", "HTSport", q.takeIf { it.isNotBlank() })
                 }
             }
 
@@ -318,7 +318,7 @@ class MatchoraProvider : MainAPI() {
             else -> {
                 val id = url.removePrefix(EV_PREFIX).substringBefore('?').trim('/')
                 val ev = (MatchoraEngine.fetchLiveEvents() + MatchoraEngine.fetchSchedule()).find { it.id == id }
-                val title = ev?.title ?: "Evento Matchora $id"
+                val title = ev?.title ?: "Evento HTSport $id"
                 val plot = buildString {
                     if (ev != null) {
                         append(
@@ -356,7 +356,7 @@ class MatchoraProvider : MainAPI() {
         callback(
             newExtractorLink(
                 source = name,
-                name = "$label · Matchora",
+                name = "$label · HTSport",
                 url = session.m3u8Url,
                 type = ExtractorLinkType.M3U8
             ) {

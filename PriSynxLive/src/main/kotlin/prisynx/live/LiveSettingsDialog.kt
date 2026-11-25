@@ -15,7 +15,7 @@ object LiveSettingsDialog {
             "⚽ Partite.cc: sezioni",
             "🏆 Partite.cc: campionati",
             "📺 Partite.cc: canali TV",
-            "📡 HTSport · Matchora: sezioni"
+            "📡 HTSport: sezioni"
         )
         AlertDialog.Builder(ctx)
             .setTitle("PriSynx Live")
@@ -155,11 +155,11 @@ object LiveSettingsDialog {
 
     private fun mxSections(ctx: Context) {
         val labels = arrayOf(
-            "📺 Canali Italiani (HTSport)",
-            "🔴 In diretta ora (Matchora)",
-            "⚽ Partite del giorno (HTSport)",
-            "📅 In programma (Matchora)",
-            "🇮🇹 Altri canali IT (Matchora)"
+            "📺 Canali Italiani (Sky/DAZN/Rai)",
+            "🔴 In diretta ora",
+            "⚽ Partite del giorno",
+            "📅 In programma (per sport)",
+            "🇮🇹 Altri canali IT"
         )
         val checked = booleanArrayOf(
             LiveSettings.mxHtChannels,
@@ -169,7 +169,7 @@ object LiveSettingsDialog {
             LiveSettings.mxItChannels
         )
         AlertDialog.Builder(ctx)
-            .setTitle("Sezioni HTSport · Matchora")
+            .setTitle("Sezioni HTSport")
             .setMultiChoiceItems(labels, checked) { _, i, on ->
                 when (i) {
                     0 -> LiveSettings.mxHtChannels = on
