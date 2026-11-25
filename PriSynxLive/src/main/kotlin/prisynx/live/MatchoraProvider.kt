@@ -28,11 +28,11 @@ import java.util.Locale
 import java.util.TimeZone
 
 /**
- * HTSport + Matchora live sports & Italian channels provider.
+ * HTSport live sports & Italian channels provider.
  *
- * Uses [MatchoraEngine.interceptorFor] as an in-app OkHttp proxy to unwrap
- * fake-PNG HLS segments into clean MPEG-TS and transparently renew expired
- * playlist tokens directly inside CloudStream's player.
+ * Resolves Matchora (with in-app PNG->TS OkHttp interceptor), `_econfig` direct
+ * HLS embeds (Live 2/7/8/11/12/13/16, no interceptor needed), WideIPTV (with
+ * automatic 5-min token refresh interceptor), and direct HLS feeds.
  */
 class MatchoraProvider : MainAPI() {
     override var mainUrl = MatchoraEngine.MATCHORA_BASE
@@ -170,9 +170,7 @@ class MatchoraProvider : MainAPI() {
 
         if (LiveSettings.mxHtChannels) {
             val cards = mutableListOf<SearchResponse>()
-            // Curated Italian Matchora HD channels directly addressable by channel ID
             MatchoraEngine.FALLBACK_IT_CHANNELS.forEach { cards += chCard(it) }
-            // Also include working direct HLS channels from htsport.me (Rai 1 / Rai 2)
             htDef.await()?.channels
                 ?.filter { it.page.equals("rai1.htm", true) || it.page.equals("rai2.htm", true) }
                 ?.forEach { cards += htChCard(it) }
@@ -317,7 +315,10 @@ class MatchoraProvider : MainAPI() {
 
             else -> {
                 val id = url.substringAfter("/_cs/ev/").substringBefore('?').trim('/')
-                val ev = MatchoraEngine.cachedEvent(id) ?: MatchoraEngine.fetchLiveEvents().find { it.id == id } ?: MatchoraEngine.fetchSchedule().find { it.id == id }
+                val ev = MatchoraEngine.cachedEvent(id)
+                    ?: MatchoraEngine.fetchLiveEvents().find { it.id == id }
+                    ?: MatchoraEngine.fetchSchedule().find { it.id == id }
+                    ?: MatchoraEngine.fetchEventById(id)
                 val title = ev?.title ?: "Evento HTSport $id"
                 val plot = buildString {
                     if (ev != null) {
@@ -347,7 +348,7 @@ class MatchoraProvider : MainAPI() {
         }
     }
 
-    private suspend fun emitSession(
+    private suspend fun emitMatchoraSession(
         session: MatchoraEngine.PlaySession,
         label: String,
         qualityStr: String,
@@ -368,15 +369,174 @@ class MatchoraProvider : MainAPI() {
         )
     }
 
-    private suspend fun emitMatchoraChannel(
-        channelId: String,
+    private suspend fun emitWideIptvSession(
+        session: MatchoraEngine.WideIptvSession,
         label: String,
-        qualityStr: String,
         callback: (ExtractorLink) -> Unit
-    ): Boolean {
-        val session = MatchoraEngine.resolvePlay(channelId) ?: return false
-        emitSession(session, label, qualityStr, callback)
-        return true
+    ) {
+        callback(
+            newExtractorLink(
+                source = name,
+                name = "$label · HLS",
+                url = session.m3u8Url,
+                type = ExtractorLinkType.M3U8
+            ) {
+                this.headers = MatchoraEngine.WIDEIPTV_HEADERS
+                this.referer = "${MatchoraEngine.WIDEIPTV_BASE}/"
+                this.quality = Qualities.P720.value
+                this.extractorData = "${MatchoraEngine.WIDEIPTV_PREFIX}${session.slug}|${session.token}"
+            }
+        )
+    }
+
+    private suspend fun emitDirectStream(
+        stream: MatchoraEngine.DirectStream,
+        label: String,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        callback(
+            newExtractorLink(
+                source = name,
+                name = "$label · Direct",
+                url = stream.m3u8Url,
+                type = ExtractorLinkType.M3U8
+            ) {
+                this.headers = mapOf(
+                    "User-Agent" to MatchoraEngine.UA,
+                    "Referer" to stream.referer,
+                    "Origin" to stream.origin,
+                    "Accept" to "*/*"
+                )
+                this.referer = stream.referer
+                this.quality = Qualities.P1080.value
+            }
+        )
+    }
+
+    private fun pickEventChannels(ev: MatchoraEngine.MatchoraEvent, limit: Int): List<MatchoraEngine.MatchoraChannel> =
+        ev.channels
+            .sortedWith(
+                compareBy<MatchoraEngine.MatchoraChannel>(
+                    { it.dead },
+                    { !isItalian(it) },
+                    { !it.playing },
+                    { !it.quality.contains("HD", true) }
+                )
+            )
+            .distinctBy { it.id }
+            .take(limit)
+
+    private fun channelLabel(ch: MatchoraEngine.MatchoraChannel): String {
+        val flag = ch.country.takeIf { it.isNotBlank() && it != "IT" } ?: if (isItalian(ch)) "🇮🇹" else ""
+        val q = ch.quality.takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty()
+        return listOf(flag, ch.name + q).filter { it.isNotBlank() }.joinToString(" ")
+    }
+
+    private suspend fun emitMatchoraEvent(
+        ev: MatchoraEngine.MatchoraEvent,
+        limit: Int,
+        seenChannelIds: MutableSet<String>,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean = coroutineScope {
+        val picked = pickEventChannels(ev, limit).filter { seenChannelIds.add(it.id) }
+        val resolved = picked.map { ch ->
+            async { ch to MatchoraEngine.resolvePlay(ch.id) }
+        }.awaitAll()
+        var emitted = false
+        for ((ch, session) in resolved) {
+            if (session == null) continue
+            emitMatchoraSession(session, channelLabel(ch), ch.quality, callback)
+            emitted = true
+        }
+        emitted
+    }
+
+    private suspend fun resolveAndEmitHtLinks(
+        links: List<MatchoraEngine.HtLink>,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean = coroutineScope {
+        val pages = links.map { link ->
+            async { link to MatchoraEngine.resolveHtPage(link.page) }
+        }.awaitAll()
+
+        val seenMxCh = HashSet<String>()
+        val seenMxEv = HashSet<String>()
+        val seenWide = HashSet<String>()
+        val seenEcfg = HashSet<String>()
+        val seenDirect = HashSet<String>()
+
+        val mxChJobs = pages.mapNotNull { (link, res) ->
+            res.matchoraChannelId?.takeIf { seenMxCh.add(it) }?.let { cid ->
+                async { link.label to MatchoraEngine.resolvePlay(cid) }
+            }
+        }
+        val mxEvJobs = pages.mapNotNull { (link, res) ->
+            res.matchoraEventId?.takeIf { seenMxEv.add(it) }?.let { eid ->
+                async { link.label to MatchoraEngine.fetchEventById(eid) }
+            }
+        }
+        val ecfgJobs = pages.mapNotNull { (link, res) ->
+            val u = res.econfigUrl?.takeIf { seenEcfg.add(it) } ?: return@mapNotNull null
+            val ref = res.econfigReferer ?: "${MatchoraEngine.HTSPORT_BASE}/${link.page}"
+            async { link.label to MatchoraEngine.resolveEconfig(u, ref) }
+        }
+        val wideJobs = pages.mapNotNull { (link, res) ->
+            res.wideIptvSlug?.takeIf { seenWide.add(it.lowercase()) }?.let { slug ->
+                async { link.label to MatchoraEngine.resolveWideIptv(slug) }
+            }
+        }
+
+        val mxChRes = mxChJobs.awaitAll()
+        val mxEvRes = mxEvJobs.awaitAll()
+        val ecfgRes = ecfgJobs.awaitAll()
+        val wideRes = wideJobs.awaitAll()
+
+        var emitted = false
+
+        // 1. Direct _econfig streams first (plain TS, 6h token, no interceptor needed)
+        for ((label, stream) in ecfgRes) {
+            if (stream != null) {
+                emitDirectStream(stream, label, callback)
+                emitted = true
+            }
+        }
+
+        // 2. Matchora direct channels
+        for ((label, session) in mxChRes) {
+            if (session != null) {
+                emitMatchoraSession(session, label, "HD", callback)
+                emitted = true
+            }
+        }
+
+        // 3. Matchora match embeds (/embed/match/<id>)
+        for ((_, ev) in mxEvRes) {
+            if (ev != null && emitMatchoraEvent(ev, 4, seenMxCh, callback)) {
+                emitted = true
+            }
+        }
+
+        // 4. WideIPTV / hesgoalsss streams (with 5-min token refresh interceptor)
+        for ((label, session) in wideRes) {
+            if (session != null) {
+                emitWideIptvSession(session, label, callback)
+                emitted = true
+            }
+        }
+
+        // 5. Plain direct .m3u8 (Rai 1 / Rai 2)
+        for ((link, res) in pages) {
+            val direct = res.directM3u8?.takeIf { seenDirect.add(it) } ?: continue
+            callback(
+                newExtractorLink(name, "${link.label} · HLS", direct, ExtractorLinkType.M3U8) {
+                    this.headers = mapOf("User-Agent" to MatchoraEngine.UA)
+                    this.quality = Qualities.P1080.value
+                }
+            )
+            emitted = true
+        }
+
+        emitted
     }
 
     override suspend fun loadLinks(
@@ -390,91 +550,33 @@ class MatchoraProvider : MainAPI() {
                 val id = data.substringAfter("/_cs/ch/").substringBefore('?').trim('/')
                 val label = queryParam(data, "n")?.takeIf { it.isNotBlank() } ?: "Canale $id"
                 val q = queryParam(data, "q").orEmpty()
-                emitMatchoraChannel(id, label, q, callback)
+                val session = MatchoraEngine.resolvePlay(id) ?: return@coroutineScope false
+                emitMatchoraSession(session, label, q, callback)
+                true
             }
 
             data.contains("/_cs/htch/") -> {
                 val page = data.substringAfter("/_cs/htch/").substringBefore('?').trim('/')
                 val label = queryParam(data, "n")?.takeIf { it.isNotBlank() } ?: page.removeSuffix(".htm")
-                val resolved = MatchoraEngine.resolveHtPage(page)
-                when {
-                    resolved.matchoraId != null -> emitMatchoraChannel(resolved.matchoraId, label, "HD", callback)
-                    resolved.directM3u8 != null -> {
-                        callback(
-                            newExtractorLink(name, "$label · HLS", resolved.directM3u8, ExtractorLinkType.M3U8) {
-                                this.headers = mapOf("User-Agent" to MatchoraEngine.UA)
-                                this.quality = Qualities.P1080.value
-                            }
-                        )
-                        true
-                    }
-                    else -> false
-                }
+                resolveAndEmitHtLinks(listOf(MatchoraEngine.HtLink(label, page)), callback)
             }
 
             data.contains("/_cs/htmatch/") -> {
                 val id = data.substringAfter("/_cs/htmatch/").substringBefore('?').trim('/')
-                val m = MatchoraEngine.cachedHtMatch(id) ?: MatchoraEngine.fetchHtHome().matches.find { it.id == id } ?: return@coroutineScope false
-                val pages = m.links.map { link ->
-                    async { link to MatchoraEngine.resolveHtPage(link.page) }
-                }.awaitAll()
-
-                val seenIds = HashSet<String>()
-                val seenDirect = HashSet<String>()
-                val mxResolved = pages.mapNotNull { (link, res) ->
-                    res.matchoraId?.takeIf { seenIds.add(it) }?.let { cid ->
-                        async { link.label to MatchoraEngine.resolvePlay(cid) }
-                    }
-                }.awaitAll()
-                var emitted = false
-                for ((label, session) in mxResolved) {
-                    if (session != null) {
-                        emitSession(session, label, "HD", callback)
-                        emitted = true
-                    }
-                }
-                for ((link, res) in pages) {
-                    val direct = res.directM3u8?.takeIf { seenDirect.add(it) } ?: continue
-                    callback(
-                        newExtractorLink(name, "${link.label} · HLS", direct, ExtractorLinkType.M3U8) {
-                            this.headers = mapOf("User-Agent" to MatchoraEngine.UA)
-                            this.quality = Qualities.P1080.value
-                        }
-                    )
-                    emitted = true
-                }
-                emitted
+                val m = MatchoraEngine.cachedHtMatch(id)
+                    ?: MatchoraEngine.fetchHtHome().matches.find { it.id == id }
+                    ?: return@coroutineScope false
+                resolveAndEmitHtLinks(m.links, callback)
             }
 
             else -> {
                 val id = data.substringAfter("/_cs/ev/").substringBefore('?').trim('/')
-                val ev = MatchoraEngine.cachedEvent(id) ?: MatchoraEngine.fetchLiveEvents().find { it.id == id } ?: MatchoraEngine.fetchSchedule().find { it.id == id }
+                val ev = MatchoraEngine.cachedEvent(id)
+                    ?: MatchoraEngine.fetchLiveEvents().find { it.id == id }
+                    ?: MatchoraEngine.fetchSchedule().find { it.id == id }
+                    ?: MatchoraEngine.fetchEventById(id)
                     ?: return@coroutineScope false
-                val picked = ev.channels
-                    .sortedWith(
-                        compareBy<MatchoraEngine.MatchoraChannel>(
-                            { it.dead },
-                            { !isItalian(it) },
-                            { !it.playing },
-                            { !it.quality.contains("HD", true) }
-                        )
-                    )
-                    .distinctBy { it.id }
-                    .take(6)
-
-                val resolved = picked.map { ch ->
-                    async { ch to MatchoraEngine.resolvePlay(ch.id) }
-                }.awaitAll()
-                var emitted = false
-                for ((ch, session) in resolved) {
-                    if (session == null) continue
-                    val flag = ch.country.takeIf { it.isNotBlank() && it != "IT" } ?: if (isItalian(ch)) "🇮🇹" else ""
-                    val q = ch.quality.takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty()
-                    val label = listOf(flag, ch.name + q).filter { it.isNotBlank() }.joinToString(" ")
-                    emitSession(session, label, ch.quality, callback)
-                    emitted = true
-                }
-                emitted
+                emitMatchoraEvent(ev, 6, HashSet(), callback)
             }
         }
     }

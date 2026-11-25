@@ -11,6 +11,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.json.JSONArray
@@ -25,17 +26,24 @@ import java.util.concurrent.TimeUnit
 import java.util.zip.Inflater
 
 /**
- * HTSport + Matchora client and OkHttp interceptor.
+ * HTSport + Matchora client and OkHttp interceptors.
  *
- * Matchora serves HLS streams whose segments are disguised as PNG images:
- * the MPEG-TS bytes are split across `iTXt` chunks ("payload-NNNN"), zlib-compressed
- * and Base64-encoded. [MatchoraInterceptor] unwraps every segment on the fly inside
- * CloudStream's ExoPlayer OkHttp pipeline and renews expired playlist tokens.
+ * Supported stream types:
+ * 1. Matchora (`/embed/channel/<id>` and `/embed/match/<id>`): HLS with fake-PNG
+ *    segments (`iTXt` `payload-*`, zlib, Base64). [MatchoraInterceptor] unwraps every
+ *    segment on the fly into clean MPEG-TS and renews expired playlist tokens.
+ * 2. `_econfig` embeds (`ordernap.net`, `sportsonliine`/`dyntiptoe`, etc.): Base64-scrambled
+ *    JSON containing a direct plain MPEG-TS `.m3u8` (6h token, no interceptor needed).
+ * 3. WideIPTV / hesgoalsss (`wideiptv.top/player/<slug>`): plain HLS with a 5-minute
+ *    token renewed transparently by [WideIptvInterceptor].
+ * 4. Direct `.m3u8` embeds (e.g. Rai 1 / Rai 2).
  */
 object MatchoraEngine {
     const val HTSPORT_BASE = "https://htsport.me"
     const val MATCHORA_BASE = "https://matchora.pro"
+    const val WIDEIPTV_BASE = "https://wideiptv.top"
     const val DATA_PREFIX = "prisynx:matchora:"
+    const val WIDEIPTV_PREFIX = "prisynx:wideiptv:"
     const val UA =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0"
 
@@ -43,6 +51,13 @@ object MatchoraEngine {
         "User-Agent" to UA,
         "Referer" to "$MATCHORA_BASE/",
         "Origin" to MATCHORA_BASE,
+        "Accept" to "*/*"
+    )
+
+    val WIDEIPTV_HEADERS = mapOf(
+        "User-Agent" to UA,
+        "Referer" to "$WIDEIPTV_BASE/",
+        "Origin" to WIDEIPTV_BASE,
         "Accept" to "*/*"
     )
 
@@ -61,6 +76,18 @@ object MatchoraEngine {
         val pp: String,
         val fx: String,
         val expiresIn: Int
+    )
+
+    data class WideIptvSession(
+        val slug: String,
+        val m3u8Url: String,
+        val token: String
+    )
+
+    data class DirectStream(
+        val m3u8Url: String,
+        val referer: String,
+        val origin: String
     )
 
     data class MatchoraChannel(
@@ -98,7 +125,14 @@ object MatchoraEngine {
 
     data class HtHome(val channels: List<HtLink>, val matches: List<HtMatch>)
 
-    data class ResolvedHtPage(val matchoraId: String?, val directM3u8: String?)
+    data class ResolvedHtPage(
+        val matchoraChannelId: String? = null,
+        val matchoraEventId: String? = null,
+        val wideIptvSlug: String? = null,
+        val econfigUrl: String? = null,
+        val econfigReferer: String? = null,
+        val directM3u8: String? = null
+    )
 
     /** Built-in Italian Matchora channels used as fallback if htsport.me is unreachable. */
     val FALLBACK_IT_CHANNELS = listOf(
@@ -138,6 +172,24 @@ object MatchoraEngine {
             }
         } catch (_: Exception) {
             null
+        }
+    }
+
+    private fun originOf(url: String): String = try {
+        val u = URI(url)
+        val port = if (u.port > 0 && u.port != 80 && u.port != 443) ":${u.port}" else ""
+        "${u.scheme}://${u.host}$port"
+    } catch (_: Exception) {
+        HTSPORT_BASE
+    }
+
+    private fun normalizeIframeUrl(raw: String, baseUrl: String): String? {
+        val cleaned = raw.replace("\\/", "/").trim()
+        if (cleaned.isBlank()) return null
+        return when {
+            cleaned.startsWith("http://", true) || cleaned.startsWith("https://", true) -> cleaned
+            cleaned.startsWith("//") -> "https:$cleaned"
+            else -> runCatching { URI(baseUrl).resolve(cleaned).toString() }.getOrNull()
         }
     }
 
@@ -235,6 +287,109 @@ object MatchoraEngine {
         null
     }
 
+    // ── _econfig embed resolver (ordernap / dyntiptoe / sportsonline) ───────────
+
+    private fun b64DecodeLatin1(input: String): String {
+        val bytes = Base64.decode(input.trim(), Base64.DEFAULT)
+        return String(bytes, Charsets.ISO_8859_1)
+    }
+
+    /**
+     * Decodes `window._econfig` used by ordernap.net / dyntiptoe.net embeds:
+     * base64 -> 4 equal chunks -> strip index 3 char -> base64 -> reorder [2,0,3,1] -> base64 -> JSON.
+     */
+    fun decodeEconfig(encoded: String): JSONObject? = try {
+        val layer1 = b64DecodeLatin1(encoded)
+        val chunkSize = (layer1.length + 3) / 4
+        val order = intArrayOf(2, 0, 3, 1)
+        val reordered = arrayOfNulls<String>(4)
+        for (i in 0 until 4) {
+            val start = i * chunkSize
+            val end = minOf(layer1.length, start + chunkSize)
+            if (start >= end) return null
+            val chunk = layer1.substring(start, end)
+            val cleaned = if (chunk.length > 4) chunk.substring(0, 3) + chunk.substring(4) else chunk
+            reordered[order[i]] = b64DecodeLatin1(cleaned)
+        }
+        val joined = reordered.joinToString("") { it.orEmpty() }
+        val jsonBytes = Base64.decode(joined, Base64.DEFAULT)
+        JSONObject(String(jsonBytes, Charsets.UTF_8))
+    } catch (_: Exception) {
+        null
+    }
+
+    suspend fun resolveEconfig(embedUrl: String, referer: String): DirectStream? = withContext(Dispatchers.IO) {
+        val html = getText(
+            embedUrl,
+            mapOf(
+                "Referer" to referer,
+                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+            )
+        ) ?: return@withContext null
+        val encoded = Regex("""window\._econfig\s*=\s*['"]([^'"]+)['"]""").find(html)?.groupValues?.get(1)
+            ?: return@withContext null
+        val cfg = decodeEconfig(encoded) ?: return@withContext null
+        // Skip only if Turnstile is actually enforced for this stream.
+        if (cfg.optString("turnstile_key", "").isNotBlank()) return@withContext null
+        val streamUrl = cfg.optString("stream_url", "").takeIf { it.startsWith("http") }
+            ?: cfg.optString("stream_url2", "").takeIf { it.startsWith("http") }
+            ?: return@withContext null
+        val origin = originOf(embedUrl)
+        DirectStream(m3u8Url = streamUrl, referer = "$origin/", origin = origin)
+    }
+
+    // ── WideIPTV resolver (wideiptv.top & hesgoalsss) ───────────────────────────
+
+    suspend fun resolveWideIptv(slug: String): WideIptvSession? = withContext(Dispatchers.IO) {
+        val clean = slug.trim()
+        if (clean.isBlank()) return@withContext null
+        val html = getText(
+            "$WIDEIPTV_BASE/player/${enc(clean)}",
+            mapOf(
+                "Referer" to "$HTSPORT_BASE/",
+                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+            )
+        ) ?: return@withContext null
+        val streamUrl = Regex("""streamUrl\s*:\s*"([^"]+)"""").find(html)?.groupValues?.get(1)
+            ?.replace("\\/", "/")
+            ?.takeIf { it.startsWith("http") }
+            ?: return@withContext null
+        val token = Regex("""currentToken\s*:\s*"([^"]+)"""").find(html)?.groupValues?.get(1)
+            ?: Regex("""[?&]token=([^&]+)""").find(streamUrl)?.groupValues?.get(1)
+            ?: return@withContext null
+        val channelSlug = Regex("""channelSlug\s*:\s*"([^"]+)"""").find(html)?.groupValues?.get(1)
+            ?.takeIf { it.isNotBlank() } ?: clean
+        WideIptvSession(slug = channelSlug, m3u8Url = streamUrl, token = token)
+    }
+
+    private fun refreshWideIptvToken(slug: String, currentToken: String): String? {
+        val payload = JSONObject()
+            .put("channel", slug)
+            .put("current_token", currentToken)
+            .toString()
+        val req = Request.Builder()
+            .url("$WIDEIPTV_BASE/api/refresh_token.php")
+            .header("User-Agent", UA)
+            .header("Referer", "$WIDEIPTV_BASE/player/${enc(slug)}")
+            .header("Origin", WIDEIPTV_BASE)
+            .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+        val renewed = try {
+            http.newCall(req).execute().use { res ->
+                if (res.code !in 200..299) null
+                else {
+                    val j = JSONObject(res.body?.string().orEmpty())
+                    if (j.optBoolean("success", false)) j.optString("token", "").takeIf { it.isNotBlank() } else null
+                }
+            }
+        } catch (_: Exception) {
+            null
+        }
+        if (renewed != null) return renewed
+        // Fallback: re-fetch the player page for a fresh token.
+        return runBlocking { withTimeoutOrNull(12_000L) { resolveWideIptv(slug)?.token } }
+    }
+
     // ── HTSport scraping ────────────────────────────────────────────────────────
 
     suspend fun fetchHtHome(): HtHome = withContext(Dispatchers.IO) {
@@ -292,29 +447,130 @@ object MatchoraEngine {
         val now = System.currentTimeMillis()
         htPageCache[clean]?.takeIf { now - it.first < 10 * 60_000L }?.let { return@withContext it.second }
 
-        val html = getText("$HTSPORT_BASE/$clean", mapOf("Referer" to "$HTSPORT_BASE/"))
-            ?: return@withContext ResolvedHtPage(null, null)
+        val pageUrl = "$HTSPORT_BASE/$clean"
+        val html = getText(pageUrl, mapOf("Referer" to "$HTSPORT_BASE/"))
+            ?: return@withContext ResolvedHtPage()
 
-        val matchoraId = Regex("""matchora\.pro/embed/channel/(\d+)""", RegexOption.IGNORE_CASE)
+        // 1. Matchora channel or match embed on any TLD (.pro, .st, .to, ...)
+        Regex("""matchora\.[a-z0-9.-]+/embed/channel/(\d+)""", RegexOption.IGNORE_CASE)
+            .find(html)?.groupValues?.get(1)?.let { cid ->
+                val res = ResolvedHtPage(matchoraChannelId = cid)
+                htPageCache[clean] = now to res
+                return@withContext res
+            }
+
+        Regex("""matchora\.[a-z0-9.-]+/embed/match/(\d+)""", RegexOption.IGNORE_CASE)
+            .find(html)?.groupValues?.get(1)?.let { eid ->
+                val res = ResolvedHtPage(matchoraEventId = eid)
+                htPageCache[clean] = now to res
+                return@withContext res
+            }
+
+        // 2. WideIPTV direct or via hesgoalsss (?id=...)
+        Regex("""wideiptv\.top/player/([^"'?&#\s<>]+)""", RegexOption.IGNORE_CASE)
+            .find(html)?.groupValues?.get(1)?.let { slug ->
+                val res = ResolvedHtPage(wideIptvSlug = runCatching { URLDecoder.decode(slug, "UTF-8") }.getOrDefault(slug))
+                htPageCache[clean] = now to res
+                return@withContext res
+            }
+
+        Regex("""hesgoalsss\.blogspot\.com/p/ntv\.html\?id=([^"'&#\s<>]+)""", RegexOption.IGNORE_CASE)
+            .find(html)?.groupValues?.get(1)?.let { slug ->
+                val res = ResolvedHtPage(wideIptvSlug = runCatching { URLDecoder.decode(slug, "UTF-8") }.getOrDefault(slug))
+                htPageCache[clean] = now to res
+                return@withContext res
+            }
+
+        // 3. Direct m3u8 (e.g. m3u8player.online wrapper for Rai 1/2)
+        val wrappedM3u8 = Regex("""m3u8player\.online/embed/m3u8\?url=([^"'&\s<>]+)""", RegexOption.IGNORE_CASE)
+            .find(html)?.groupValues?.get(1)?.let { runCatching { URLDecoder.decode(it, "UTF-8") }.getOrNull() }
+        val directM3u8 = wrappedM3u8 ?: Regex("""(https?://[^"'\s<>]+\.m3u8[^"'\s<>]*)""", RegexOption.IGNORE_CASE)
             .find(html)?.groupValues?.get(1)
-        if (matchoraId != null) {
-            val res = ResolvedHtPage(matchoraId, null)
+            ?.takeUnless { it.contains("ondemand.st/player/hls", true) }
+        if (directM3u8 != null) {
+            val res = ResolvedHtPage(directM3u8 = directM3u8)
             htPageCache[clean] = now to res
             return@withContext res
         }
 
-        val wrappedM3u8 = Regex("""m3u8player\.online/embed/m3u8\?url=([^"'&\s<>]+)""", RegexOption.IGNORE_CASE)
-            .find(html)?.groupValues?.get(1)?.let { runCatching { URLDecoder.decode(it, "UTF-8") }.getOrNull() }
-        val direct = wrappedM3u8 ?: Regex("""(https?://[^"'\s<>]+\.m3u8[^"'\s<>]*)""", RegexOption.IGNORE_CASE)
-            .find(html)?.groupValues?.get(1)
-            ?.takeUnless { it.contains("ondemand.st/player/hls", true) }
+        // 4. Inspect iframe (up to 2 hops) for _econfig players (ordernap, sportsonliine -> dyntiptoe, etc.)
+        val iframes = Regex("""<iframe[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+            .findAll(html).mapNotNull { normalizeIframeUrl(it.groupValues[1], pageUrl) }.toList()
+        for (iframeUrl in iframes) {
+            if (iframeUrl.contains("zicotv.cc", true)) continue
+            val hop1 = getText(iframeUrl, mapOf("Referer" to pageUrl)) ?: continue
+            if (hop1.contains("window._econfig")) {
+                val res = ResolvedHtPage(econfigUrl = iframeUrl, econfigReferer = pageUrl)
+                htPageCache[clean] = now to res
+                return@withContext res
+            }
+            // Check 1 nested iframe (e.g. sportsonliine.click/channels/hd/hd7.php -> dyntiptoe.net/e/...)
+            val inner = Regex("""<iframe[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                .find(hop1)?.groupValues?.get(1)?.let { normalizeIframeUrl(it, iframeUrl) }
+                ?: continue
+            Regex("""matchora\.[a-z0-9.-]+/embed/channel/(\d+)""", RegexOption.IGNORE_CASE)
+                .find(inner)?.groupValues?.get(1)?.let { cid ->
+                    val res = ResolvedHtPage(matchoraChannelId = cid)
+                    htPageCache[clean] = now to res
+                    return@withContext res
+                }
+            val hop2 = getText(inner, mapOf("Referer" to iframeUrl)) ?: continue
+            if (hop2.contains("window._econfig")) {
+                val res = ResolvedHtPage(econfigUrl = inner, econfigReferer = iframeUrl)
+                htPageCache[clean] = now to res
+                return@withContext res
+            }
+        }
 
-        val res = ResolvedHtPage(null, direct)
-        htPageCache[clean] = now to res
-        res
+        val empty = ResolvedHtPage()
+        htPageCache[clean] = now to empty
+        empty
     }
 
     // ── Matchora public catalog APIs ────────────────────────────────────────────
+
+    private fun parseEventObject(o: JSONObject): MatchoraEvent? {
+        val id = o.optString("id", "").ifBlank { return null }
+        val home = o.optString("home", "").trim()
+        val away = o.optString("away", "").trim()
+        val title = when {
+            home.isNotBlank() && away.isNotBlank() && !home.equals(away, true) -> "$home vs $away"
+            home.isNotBlank() -> home
+            away.isNotBlank() -> away
+            else -> o.optString("league", "Evento $id")
+        }
+        val chArr = o.optJSONArray("channels") ?: JSONArray()
+        val channels = ArrayList<MatchoraChannel>(chArr.length())
+        for (j in 0 until chArr.length()) {
+            val c = chArr.optJSONObject(j) ?: continue
+            val cid = c.optString("id", "").ifBlank {
+                Regex("""/channel/(\d+)""").find(c.optString("embed_url", ""))?.groupValues?.get(1) ?: continue
+            }
+            channels += MatchoraChannel(
+                id = cid,
+                name = c.optString("name", "Canale $cid").trim(),
+                quality = c.optString("quality", "").trim(),
+                country = c.optString("country", "").trim(),
+                playing = c.optBoolean("playing", true),
+                dead = c.optBoolean("dead", false)
+            )
+        }
+        if (channels.isEmpty()) return null
+        val poster = listOf("league_badge", "home_badge", "away_badge")
+            .firstNotNullOfOrNull { k -> o.optString(k, "").takeIf { it.startsWith("http") } }
+        return MatchoraEvent(
+            id = id,
+            title = title,
+            sport = o.optString("sport", "Sport").trim().ifBlank { "Sport" },
+            league = o.optString("league", "").trim(),
+            kickoffSec = o.optLong("kickoff", 0L),
+            live = o.optBoolean("live", false),
+            score = o.optString("score", "").takeIf { it.isNotBlank() && it != "null" },
+            minute = o.optString("minute", "").takeIf { it.isNotBlank() && it != "null" },
+            poster = poster,
+            channels = channels
+        )
+    }
 
     private fun parseEvents(text: String): List<MatchoraEvent> {
         val root = runCatching { JSONObject(text) }.getOrNull() ?: return emptyList()
@@ -322,49 +578,21 @@ object MatchoraEngine {
         val out = ArrayList<MatchoraEvent>(arr.length())
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
-            val id = o.optString("id", "").ifBlank { continue }
-            val home = o.optString("home", "").trim()
-            val away = o.optString("away", "").trim()
-            val title = when {
-                home.isNotBlank() && away.isNotBlank() && !home.equals(away, true) -> "$home vs $away"
-                home.isNotBlank() -> home
-                away.isNotBlank() -> away
-                else -> o.optString("league", "Evento $id")
-            }
-            val chArr = o.optJSONArray("channels") ?: JSONArray()
-            val channels = ArrayList<MatchoraChannel>(chArr.length())
-            for (j in 0 until chArr.length()) {
-                val c = chArr.optJSONObject(j) ?: continue
-                val cid = c.optString("id", "").ifBlank {
-                    Regex("""/channel/(\d+)""").find(c.optString("embed_url", ""))?.groupValues?.get(1) ?: continue
-                }
-                channels += MatchoraChannel(
-                    id = cid,
-                    name = c.optString("name", "Canale $cid").trim(),
-                    quality = c.optString("quality", "").trim(),
-                    country = c.optString("country", "").trim(),
-                    playing = c.optBoolean("playing", true),
-                    dead = c.optBoolean("dead", false)
-                )
-            }
-            if (channels.isEmpty()) continue
-            val poster = listOf("league_badge", "home_badge", "away_badge")
-                .firstNotNullOfOrNull { k -> o.optString(k, "").takeIf { it.startsWith("http") } }
-            out += MatchoraEvent(
-                id = id,
-                title = title,
-                sport = o.optString("sport", "Sport").trim().ifBlank { "Sport" },
-                league = o.optString("league", "").trim(),
-                kickoffSec = o.optLong("kickoff", 0L),
-                live = o.optBoolean("live", false),
-                score = o.optString("score", "").takeIf { it.isNotBlank() && it != "null" },
-                minute = o.optString("minute", "").takeIf { it.isNotBlank() && it != "null" },
-                poster = poster,
-                channels = channels
-            )
+            parseEventObject(o)?.let { out += it }
         }
         out.forEach { eventById[it.id] = it }
         return out
+    }
+
+    suspend fun fetchEventById(eventId: String): MatchoraEvent? = withContext(Dispatchers.IO) {
+        eventById[eventId]?.let { return@withContext it }
+        val text = getText("$MATCHORA_BASE/api/v1/events/${enc(eventId)}") ?: return@withContext null
+        val root = runCatching { JSONObject(text) }.getOrNull() ?: return@withContext null
+        val evObj = root.optJSONObject("event") ?: root
+        val parsed = parseEventObject(evObj) ?: return@withContext null
+        eventById[parsed.id] = parsed
+        eventById[eventId] = parsed
+        parsed
     }
 
     suspend fun fetchLiveEvents(): List<MatchoraEvent> = withContext(Dispatchers.IO) {
@@ -500,7 +728,6 @@ object MatchoraEngine {
         val isPng = buf[0] == 0x89.toByte() && buf[1] == 0x50.toByte() &&
             buf[2] == 0x4E.toByte() && buf[3] == 0x47.toByte()
         if (!isPng) {
-            // Leave fMP4 boxes (ftyp / moof / styp) untouched.
             if (buf.size >= 8) {
                 val box = String(buf, 4, 4, Charsets.ISO_8859_1)
                 if (box == "ftyp" || box == "moof" || box == "styp") return buf
@@ -515,11 +742,9 @@ object MatchoraEngine {
             val lenL = readUInt32BE(buf, off)
             if (lenL < 0 || off + 12L + lenL > buf.size) break
             val len = lenL.toInt()
-            // IEND
             if (buf[off + 4] == 'I'.code.toByte() && buf[off + 5] == 'E'.code.toByte() &&
                 buf[off + 6] == 'N'.code.toByte() && buf[off + 7] == 'D'.code.toByte()
             ) break
-            // iTXt
             if (buf[off + 4] == 'i'.code.toByte() && buf[off + 5] == 'T'.code.toByte() &&
                 buf[off + 6] == 'X'.code.toByte() && buf[off + 7] == 't'.code.toByte()
             ) {
@@ -572,19 +797,83 @@ object MatchoraEngine {
         return if (tsOff >= 0) ts.copyOfRange(tsOff, ts.size) else buf
     }
 
-    // ── CloudStream video interceptor ───────────────────────────────────────────
+    // ── CloudStream video interceptors ──────────────────────────────────────────
 
     fun interceptorFor(link: ExtractorLink): Interceptor? {
-        val raw = link.extractorData?.takeIf { it.startsWith(DATA_PREFIX) }?.removePrefix(DATA_PREFIX)
-            ?: return null
-        val fields = raw.split("|")
-        val channelId = fields.getOrNull(0)?.takeIf { it.isNotBlank() } ?: return null
-        return MatchoraInterceptor(
-            channelId = channelId,
-            initialUrl = link.url,
-            initialPp = fields.getOrNull(1).orEmpty(),
-            initialFx = fields.getOrNull(2).orEmpty()
-        )
+        val data = link.extractorData ?: return null
+        if (data.startsWith(DATA_PREFIX)) {
+            val fields = data.removePrefix(DATA_PREFIX).split("|")
+            val channelId = fields.getOrNull(0)?.takeIf { it.isNotBlank() } ?: return null
+            return MatchoraInterceptor(
+                channelId = channelId,
+                initialUrl = link.url,
+                initialPp = fields.getOrNull(1).orEmpty(),
+                initialFx = fields.getOrNull(2).orEmpty()
+            )
+        }
+        if (data.startsWith(WIDEIPTV_PREFIX)) {
+            val fields = data.removePrefix(WIDEIPTV_PREFIX).split("|")
+            val slug = fields.getOrNull(0)?.takeIf { it.isNotBlank() } ?: return null
+            val token = fields.getOrNull(1)?.takeIf { it.isNotBlank() } ?: return null
+            return WideIptvInterceptor(slug = slug, initialToken = token)
+        }
+        return null
+    }
+
+    private class WideIptvInterceptor(
+        private val slug: String,
+        initialToken: String
+    ) : Interceptor {
+        private val lock = Any()
+        @Volatile private var currentToken = initialToken
+        @Volatile private var tokenAt = System.currentTimeMillis()
+        @Volatile private var lastRenewAt = 0L
+
+        private fun withToken(url: okhttp3.HttpUrl, token: String): okhttp3.HttpUrl {
+            if (url.queryParameter("token") == null || url.queryParameter("token") == token) return url
+            val b = url.newBuilder().removeAllQueryParameters("token")
+            return b.addQueryParameter("token", token).build()
+        }
+
+        override fun intercept(chain: Interceptor.Chain): Response {
+            val orig = chain.request()
+            if (System.currentTimeMillis() - tokenAt > 240_000L) {
+                renew(force = false)
+            }
+            val req = orig.newBuilder()
+                .url(withToken(orig.url, currentToken))
+                .header("User-Agent", UA)
+                .header("Referer", "$WIDEIPTV_BASE/")
+                .header("Origin", WIDEIPTV_BASE)
+                .build()
+            var response = chain.proceed(req)
+            if (response.code == 401 || response.code == 403) {
+                val fresh = renew(force = true)
+                if (fresh != null) {
+                    response.close()
+                    val retry = orig.newBuilder()
+                        .url(withToken(orig.url, fresh))
+                        .header("User-Agent", UA)
+                        .header("Referer", "$WIDEIPTV_BASE/")
+                        .header("Origin", WIDEIPTV_BASE)
+                        .header("Cache-Control", "no-cache")
+                        .build()
+                    response = chain.proceed(retry)
+                }
+            }
+            return response
+        }
+
+        private fun renew(force: Boolean): String? = synchronized(lock) {
+            val now = System.currentTimeMillis()
+            if (!force && now - tokenAt <= 240_000L) return currentToken
+            if (now - lastRenewAt < 5_000L) return currentToken
+            lastRenewAt = now
+            val next = refreshWideIptvToken(slug, currentToken) ?: return null
+            currentToken = next
+            tokenAt = System.currentTimeMillis()
+            next
+        }
     }
 
     private class MatchoraInterceptor(
