@@ -319,23 +319,43 @@ object MatchoraEngine {
     }
 
     suspend fun resolveEconfig(embedUrl: String, referer: String): DirectStream? = withContext(Dispatchers.IO) {
-        val html = getText(
-            embedUrl,
+        var curUrl = embedUrl
+        var curRef = referer
+        var html = getText(
+            curUrl,
             mapOf(
-                "Referer" to referer,
+                "Referer" to curRef,
                 "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
             )
         ) ?: return@withContext null
+        if (!html.contains("window._econfig")) {
+            val inner = Regex("""<iframe[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                .find(html)?.groupValues?.get(1)?.let { normalizeIframeUrl(it, curUrl) }
+                ?: return@withContext null
+            curRef = curUrl
+            curUrl = inner
+            html = getText(
+                curUrl,
+                mapOf(
+                    "Referer" to curRef,
+                    "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                )
+            ) ?: return@withContext null
+        }
         val encoded = Regex("""window\._econfig\s*=\s*['"]([^'"]+)['"]""").find(html)?.groupValues?.get(1)
             ?: return@withContext null
         val cfg = decodeEconfig(encoded) ?: return@withContext null
-        // Skip only if Turnstile is actually enforced for this stream.
-        if (cfg.optString("turnstile_key", "").isNotBlank()) return@withContext null
-        val streamUrl = cfg.optString("stream_url", "").takeIf { it.startsWith("http") }
-            ?: cfg.optString("stream_url2", "").takeIf { it.startsWith("http") }
-            ?: return@withContext null
-        val origin = originOf(embedUrl)
-        DirectStream(m3u8Url = streamUrl, referer = "$origin/", origin = origin)
+        val tsKey = if (cfg.isNull("turnstile_key")) "" else cfg.optString("turnstile_key", "")
+        if (tsKey.isNotBlank() && !tsKey.equals("null", true)) return@withContext null
+        val candidates = listOf("stream_url", "stream_url_nop2p", "stream_url2")
+            .mapNotNull { k -> if (cfg.isNull(k)) null else cfg.optString(k, "").takeIf { it.startsWith("http") } }
+        if (candidates.isEmpty()) return@withContext null
+        val origin = originOf(curUrl)
+        val hdrs = mapOf("Referer" to "$origin/", "Origin" to origin, "Accept" to "*/*")
+        val working = candidates.firstOrNull { u ->
+            getText(u, hdrs)?.trimStart()?.startsWith("#EXTM3U") == true
+        } ?: candidates.first()
+        DirectStream(m3u8Url = working, referer = "$origin/", origin = origin)
     }
 
     // ── WideIPTV resolver (wideiptv.top & hesgoalsss) ───────────────────────────
@@ -436,8 +456,20 @@ object MatchoraEngine {
             }
         }
 
-        matches.forEach { htMatchById[it.id] = it }
-        val result = HtHome(channels, matches)
+        val merged = LinkedHashMap<String, HtMatch>()
+        for (m in matches) {
+            val key = m.title.lowercase().replace(Regex("[^a-z0-9]+"), "")
+            val prev = merged[key]
+            if (prev == null) {
+                merged[key] = m
+            } else {
+                val combined = (prev.links + m.links).distinctBy { it.page.lowercase() }
+                merged[key] = prev.copy(live = prev.live || m.live, links = combined)
+            }
+        }
+        val finalMatches = merged.values.toList()
+        finalMatches.forEach { htMatchById[it.id] = it }
+        val result = HtHome(channels, finalMatches)
         if (channels.isNotEmpty() || matches.isNotEmpty()) htCache = now to result
         result
     }
@@ -516,7 +548,7 @@ object MatchoraEngine {
                 }
             val hop2 = getText(inner, mapOf("Referer" to iframeUrl)) ?: continue
             if (hop2.contains("window._econfig")) {
-                val res = ResolvedHtPage(econfigUrl = inner, econfigReferer = iframeUrl)
+                val res = ResolvedHtPage(econfigUrl = iframeUrl, econfigReferer = pageUrl)
                 htPageCache[clean] = now to res
                 return@withContext res
             }

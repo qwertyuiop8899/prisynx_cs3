@@ -16,7 +16,7 @@ android {
 
 tasks.named("preBuild").configure { dependsOn(syncVavoo) }
 
-version = 10
+version = 11
 
 cloudstream {
     description = "PriSynx Live: TV in diretta Vavoo (nazioni selezionabili, EPG Italia), HTSport (canali Sky/DAZN IT e sport live con decodifica segmenti integrata), SportzX e Partite.cc."

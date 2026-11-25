@@ -93,13 +93,49 @@ class MatchoraProvider : MainAPI() {
         }
 
         private fun isItalian(c: MatchoraEngine.MatchoraChannel): Boolean {
-            val combined = "${c.country} ${c.name}".lowercase()
-            return c.country.equals("IT", true) ||
-                c.country.contains("🇮🇹") ||
-                combined.contains("italia") ||
-                combined.contains("sky sport") ||
-                combined.contains("dazn it") ||
-                combined.contains("calcio")
+            if (c.country.equals("IT", true) || c.country.contains("🇮🇹")) return true
+            if (c.country.isNotBlank() && c.country != "📺") return false
+            val low = c.name.lowercase()
+            return low.contains("italia") || low.contains("calcio") || low.contains("dazn it") ||
+                (low.contains("sky sport") && !low.contains("austria") && !low.contains("de") && !low.contains("uk"))
+        }
+
+        private fun matchTokens(title: String): Set<String> {
+            val norm = title.lowercase()
+                .replace("paris saint-germain", "psg")
+                .replace("paris saint germain", "psg")
+                .replace("manchester united", "manutd")
+                .replace("manchester city", "mancity")
+                .replace("bayern munich", "bayern")
+                .replace("bayern monaco", "bayern")
+                .replace("stuttgart", "stoccarda")
+                .replace("barcelona", "barcellona")
+                .replace("atletico madrid", "atlmadrid")
+                .replace("atl madrid", "atlmadrid")
+                .replace("club brugge", "bruges")
+                .replace("inter milan", "inter")
+                .replace("internazionale", "inter")
+                .replace("as roma", "roma")
+                .replace("ac milan", "milan")
+                .replace("slavia prague", "slavia")
+                .replace("slavia praga", "slavia")
+            val stop = setOf("fc", "cf", "ac", "as", "sc", "cp", "vs", "sv", "ss", "us", "cd", "ud", "de", "la", "el", "di")
+            return Regex("[a-z0-9]{3,}").findAll(norm).map { it.value }.filter { it !in stop }.toSet()
+        }
+
+        private fun findMatchingHtMatch(ev: MatchoraEngine.MatchoraEvent, htMatches: List<MatchoraEngine.HtMatch>): MatchoraEngine.HtMatch? {
+            val evTok = matchTokens(ev.title)
+            if (evTok.isEmpty()) return null
+            var best: Pair<Int, MatchoraEngine.HtMatch>? = null
+            for (m in htMatches) {
+                val mTok = matchTokens(m.title)
+                val common = evTok.intersect(mTok).size
+                val needed = if (evTok.size >= 2 && mTok.size >= 2) 2 else 1
+                if (common >= needed && (best == null || common > best.first)) {
+                    best = common to m
+                }
+            }
+            return best?.second
         }
     }
 
@@ -177,17 +213,17 @@ class MatchoraProvider : MainAPI() {
             rows += HomePageList("📺 Canali Italiani", cards, false)
         }
 
+        if (LiveSettings.mxHtMatches) {
+            val matches = htDef.await()?.matches.orEmpty()
+            if (matches.isNotEmpty()) {
+                rows += HomePageList("⚽ Partite del giorno (HTSport)", matches.map(::htMatchCard), false)
+            }
+        }
+
         if (LiveSettings.mxLive) {
             val live = liveDef.await()
             if (live.isNotEmpty()) {
                 rows += HomePageList("🔴 In diretta ora", live.map(::evCard), false)
-            }
-        }
-
-        if (LiveSettings.mxHtMatches) {
-            val matches = htDef.await()?.matches.orEmpty()
-            if (matches.isNotEmpty()) {
-                rows += HomePageList("⚽ Partite del giorno", matches.map(::htMatchCard), false)
             }
         }
 
@@ -453,7 +489,8 @@ class MatchoraProvider : MainAPI() {
 
     private suspend fun resolveAndEmitHtLinks(
         links: List<MatchoraEngine.HtLink>,
-        callback: (ExtractorLink) -> Unit
+        callback: (ExtractorLink) -> Unit,
+        includeMatchoraEvents: Boolean = true
     ): Boolean = coroutineScope {
         val pages = links.map { link ->
             async { link to MatchoraEngine.resolveHtPage(link.page) }
@@ -470,11 +507,13 @@ class MatchoraProvider : MainAPI() {
                 async { link.label to MatchoraEngine.resolvePlay(cid) }
             }
         }
-        val mxEvJobs = pages.mapNotNull { (link, res) ->
-            res.matchoraEventId?.takeIf { seenMxEv.add(it) }?.let { eid ->
-                async { link.label to MatchoraEngine.fetchEventById(eid) }
+        val mxEvJobs = if (includeMatchoraEvents) {
+            pages.mapNotNull { (link, res) ->
+                res.matchoraEventId?.takeIf { seenMxEv.add(it) }?.let { eid ->
+                    async { link.label to MatchoraEngine.fetchEventById(eid) }
+                }
             }
-        }
+        } else emptyList()
         val ecfgJobs = pages.mapNotNull { (link, res) ->
             val u = res.econfigUrl?.takeIf { seenEcfg.add(it) } ?: return@mapNotNull null
             val ref = res.econfigReferer ?: "${MatchoraEngine.HTSPORT_BASE}/${link.page}"
@@ -576,7 +615,21 @@ class MatchoraProvider : MainAPI() {
                     ?: MatchoraEngine.fetchSchedule().find { it.id == id }
                     ?: MatchoraEngine.fetchEventById(id)
                     ?: return@coroutineScope false
-                emitMatchoraEvent(ev, 6, HashSet(), callback)
+                var emitted = false
+                val htMatch = runCatching {
+                    findMatchingHtMatch(ev, MatchoraEngine.fetchHtHome().matches)
+                }.getOrNull()
+                if (htMatch != null) {
+                    // Emit HTSport direct/ITA links (e.g. Live 2 🇮🇹, Live 7 🇮🇹) first, skipping duplicate matchora match embed
+                    val nonMxEvLinks = htMatch.links
+                    if (resolveAndEmitHtLinks(nonMxEvLinks, callback, includeMatchoraEvents = false)) {
+                        emitted = true
+                    }
+                }
+                if (emitMatchoraEvent(ev, 6, HashSet(), callback)) {
+                    emitted = true
+                }
+                emitted
             }
         }
     }
