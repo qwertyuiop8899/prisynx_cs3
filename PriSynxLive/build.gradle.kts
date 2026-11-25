@@ -16,10 +16,10 @@ android {
 
 tasks.named("preBuild").configure { dependsOn(syncVavoo) }
 
-version = 6
+version = 7
 
 cloudstream {
-    description = "PriSynx Live: TV in diretta Vavoo (nazioni selezionabili, EPG Italia), eventi sportivi live SportzX ed eventi live Partite.cc (calcio, basket, motori, tennis in diretta HD), con impostazioni per nazioni, sport e canali DRM."
+    description = "PriSynx Live: TV in diretta Vavoo (nazioni selezionabili, EPG Italia), HTSport · Matchora (canali Sky/DAZN IT e sport live con decodifica segmenti integrata), SportzX e Partite.cc."
     authors = listOf("PriSynx")
     status = 1
     tvTypes = listOf("Live")

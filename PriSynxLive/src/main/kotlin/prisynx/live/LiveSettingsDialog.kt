@@ -14,7 +14,8 @@ object LiveSettingsDialog {
             "⚙️ SportzX: opzioni",
             "⚽ Partite.cc: sezioni",
             "🏆 Partite.cc: campionati",
-            "📺 Partite.cc: canali TV"
+            "📺 Partite.cc: canali TV",
+            "📡 HTSport · Matchora: sezioni"
         )
         AlertDialog.Builder(ctx)
             .setTitle("PriSynx Live")
@@ -26,6 +27,7 @@ object LiveSettingsDialog {
                     3 -> paSections(ctx)
                     4 -> leagueGroups(ctx, PartiteCatalog.leagues)
                     5 -> channelGroups(ctx, PartiteCatalog.channels)
+                    6 -> mxSections(ctx)
                 }
             }
             .setNegativeButton("Chiudi", null)
@@ -148,6 +150,36 @@ object LiveSettingsDialog {
                 LiveSettings.setChannel(all, list[i].slug, on)
             }
             .setPositiveButton("OK") { _, _ -> channelGroups(ctx, all) }
+            .show()
+    }
+
+    private fun mxSections(ctx: Context) {
+        val labels = arrayOf(
+            "📺 Canali Italiani (HTSport)",
+            "🔴 In diretta ora (Matchora)",
+            "⚽ Partite del giorno (HTSport)",
+            "📅 In programma (Matchora)",
+            "🇮🇹 Altri canali IT (Matchora)"
+        )
+        val checked = booleanArrayOf(
+            LiveSettings.mxHtChannels,
+            LiveSettings.mxLive,
+            LiveSettings.mxHtMatches,
+            LiveSettings.mxSchedule,
+            LiveSettings.mxItChannels
+        )
+        AlertDialog.Builder(ctx)
+            .setTitle("Sezioni HTSport · Matchora")
+            .setMultiChoiceItems(labels, checked) { _, i, on ->
+                when (i) {
+                    0 -> LiveSettings.mxHtChannels = on
+                    1 -> LiveSettings.mxLive = on
+                    2 -> LiveSettings.mxHtMatches = on
+                    3 -> LiveSettings.mxSchedule = on
+                    else -> LiveSettings.mxItChannels = on
+                }
+            }
+            .setPositiveButton("OK") { _, _ -> show(ctx) }
             .show()
     }
 }

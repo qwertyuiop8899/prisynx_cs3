@@ -86,4 +86,21 @@ object LiveSettings {
         val cur = strSet("pa_channels") ?: all.filter { channelSelected(it.slug, it.country) }.map { it.slug }.toSet()
         putSet("pa_channels", if (on) cur + slug else cur - slug)
     }
+
+    // ── HTSport · Matchora ──
+    var mxHtChannels: Boolean
+        get() = bool("mx_ht_channels", true)
+        set(v) = setBool("mx_ht_channels", v)
+    var mxHtMatches: Boolean
+        get() = bool("mx_ht_matches", true)
+        set(v) = setBool("mx_ht_matches", v)
+    var mxLive: Boolean
+        get() = bool("mx_live", true)
+        set(v) = setBool("mx_live", v)
+    var mxSchedule: Boolean
+        get() = bool("mx_schedule", true)
+        set(v) = setBool("mx_schedule", v)
+    var mxItChannels: Boolean
+        get() = bool("mx_it_channels", true)
+        set(v) = setBool("mx_it_channels", v)
 }
