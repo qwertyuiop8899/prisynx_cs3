@@ -44,10 +44,10 @@ class MatchoraProvider : MainAPI() {
     override val vpnStatus = VPNStatus.None
 
     companion object {
-        private const val CH_PREFIX = "matchora://ch/"
-        private const val HT_CH_PREFIX = "matchora://htch/"
-        private const val HT_MATCH_PREFIX = "matchora://htmatch/"
-        private const val EV_PREFIX = "matchora://ev/"
+        private const val CH_PREFIX = "https://matchora.pro/_cs/ch/"
+        private const val HT_CH_PREFIX = "https://matchora.pro/_cs/htch/"
+        private const val HT_MATCH_PREFIX = "https://matchora.pro/_cs/htmatch/"
+        private const val EV_PREFIX = "https://matchora.pro/_cs/ev/"
         private const val FALLBACK_POSTER =
             "https://raw.githubusercontent.com/qwertyuiop8899/tvvoo/main/public/tvvoo.png"
 
@@ -270,8 +270,8 @@ class MatchoraProvider : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse {
         when {
-            url.startsWith(CH_PREFIX) -> {
-                val id = url.removePrefix(CH_PREFIX).substringBefore('?').trim('/')
+            url.contains("/_cs/ch/") -> {
+                val id = url.substringAfter("/_cs/ch/").substringBefore('?').trim('/')
                 val title = queryParam(url, "n")?.takeIf { it.isNotBlank() }
                     ?: MatchoraEngine.FALLBACK_IT_CHANNELS.find { it.id == id }?.name
                     ?: "Canale $id"
@@ -285,8 +285,8 @@ class MatchoraProvider : MainAPI() {
                 }
             }
 
-            url.startsWith(HT_CH_PREFIX) -> {
-                val page = url.removePrefix(HT_CH_PREFIX).substringBefore('?').trim('/')
+            url.contains("/_cs/htch/") -> {
+                val page = url.substringAfter("/_cs/htch/").substringBefore('?').trim('/')
                 val title = queryParam(url, "n")?.takeIf { it.isNotBlank() } ?: page.removeSuffix(".htm")
                 return newLiveStreamLoadResponse(title, url, url) {
                     posterUrl = FALLBACK_POSTER
@@ -295,9 +295,9 @@ class MatchoraProvider : MainAPI() {
                 }
             }
 
-            url.startsWith(HT_MATCH_PREFIX) -> {
-                val id = url.removePrefix(HT_MATCH_PREFIX).substringBefore('?').trim('/')
-                val m = MatchoraEngine.fetchHtHome().matches.find { it.id == id }
+            url.contains("/_cs/htmatch/") -> {
+                val id = url.substringAfter("/_cs/htmatch/").substringBefore('?').trim('/')
+                val m = MatchoraEngine.cachedHtMatch(id) ?: MatchoraEngine.fetchHtHome().matches.find { it.id == id }
                 val title = m?.title ?: "Partita HTSport"
                 val plot = buildString {
                     if (m != null) {
@@ -316,8 +316,8 @@ class MatchoraProvider : MainAPI() {
             }
 
             else -> {
-                val id = url.removePrefix(EV_PREFIX).substringBefore('?').trim('/')
-                val ev = (MatchoraEngine.fetchLiveEvents() + MatchoraEngine.fetchSchedule()).find { it.id == id }
+                val id = url.substringAfter("/_cs/ev/").substringBefore('?').trim('/')
+                val ev = MatchoraEngine.cachedEvent(id) ?: MatchoraEngine.fetchLiveEvents().find { it.id == id } ?: MatchoraEngine.fetchSchedule().find { it.id == id }
                 val title = ev?.title ?: "Evento HTSport $id"
                 val plot = buildString {
                     if (ev != null) {
@@ -386,15 +386,15 @@ class MatchoraProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean = coroutineScope {
         when {
-            data.startsWith(CH_PREFIX) -> {
-                val id = data.removePrefix(CH_PREFIX).substringBefore('?').trim('/')
+            data.contains("/_cs/ch/") -> {
+                val id = data.substringAfter("/_cs/ch/").substringBefore('?').trim('/')
                 val label = queryParam(data, "n")?.takeIf { it.isNotBlank() } ?: "Canale $id"
                 val q = queryParam(data, "q").orEmpty()
                 emitMatchoraChannel(id, label, q, callback)
             }
 
-            data.startsWith(HT_CH_PREFIX) -> {
-                val page = data.removePrefix(HT_CH_PREFIX).substringBefore('?').trim('/')
+            data.contains("/_cs/htch/") -> {
+                val page = data.substringAfter("/_cs/htch/").substringBefore('?').trim('/')
                 val label = queryParam(data, "n")?.takeIf { it.isNotBlank() } ?: page.removeSuffix(".htm")
                 val resolved = MatchoraEngine.resolveHtPage(page)
                 when {
@@ -412,9 +412,9 @@ class MatchoraProvider : MainAPI() {
                 }
             }
 
-            data.startsWith(HT_MATCH_PREFIX) -> {
-                val id = data.removePrefix(HT_MATCH_PREFIX).substringBefore('?').trim('/')
-                val m = MatchoraEngine.fetchHtHome().matches.find { it.id == id } ?: return@coroutineScope false
+            data.contains("/_cs/htmatch/") -> {
+                val id = data.substringAfter("/_cs/htmatch/").substringBefore('?').trim('/')
+                val m = MatchoraEngine.cachedHtMatch(id) ?: MatchoraEngine.fetchHtHome().matches.find { it.id == id } ?: return@coroutineScope false
                 val pages = m.links.map { link ->
                     async { link to MatchoraEngine.resolveHtPage(link.page) }
                 }.awaitAll()
@@ -447,8 +447,8 @@ class MatchoraProvider : MainAPI() {
             }
 
             else -> {
-                val id = data.removePrefix(EV_PREFIX).substringBefore('?').trim('/')
-                val ev = (MatchoraEngine.fetchLiveEvents() + MatchoraEngine.fetchSchedule()).find { it.id == id }
+                val id = data.substringAfter("/_cs/ev/").substringBefore('?').trim('/')
+                val ev = MatchoraEngine.cachedEvent(id) ?: MatchoraEngine.fetchLiveEvents().find { it.id == id } ?: MatchoraEngine.fetchSchedule().find { it.id == id }
                     ?: return@coroutineScope false
                 val picked = ev.channels
                     .sortedWith(

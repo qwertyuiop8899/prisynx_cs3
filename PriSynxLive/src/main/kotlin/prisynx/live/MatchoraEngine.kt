@@ -123,6 +123,11 @@ object MatchoraEngine {
     @Volatile private var schedCache: Pair<Long, List<MatchoraEvent>>? = null
     @Volatile private var itChCache: Pair<Long, List<MatchoraChannel>>? = null
     private val htPageCache = ConcurrentHashMap<String, Pair<Long, ResolvedHtPage>>()
+    private val eventById = ConcurrentHashMap<String, MatchoraEvent>()
+    private val htMatchById = ConcurrentHashMap<String, HtMatch>()
+
+    fun cachedEvent(id: String): MatchoraEvent? = eventById[id]
+    fun cachedHtMatch(id: String): HtMatch? = htMatchById[id]
 
     private fun getText(url: String, headers: Map<String, String> = emptyMap()): String? {
         val req = Request.Builder().url(url).header("User-Agent", UA)
@@ -276,6 +281,7 @@ object MatchoraEngine {
             }
         }
 
+        matches.forEach { htMatchById[it.id] = it }
         val result = HtHome(channels, matches)
         if (channels.isNotEmpty() || matches.isNotEmpty()) htCache = now to result
         result
@@ -357,6 +363,7 @@ object MatchoraEngine {
                 channels = channels
             )
         }
+        out.forEach { eventById[it.id] = it }
         return out
     }
 
