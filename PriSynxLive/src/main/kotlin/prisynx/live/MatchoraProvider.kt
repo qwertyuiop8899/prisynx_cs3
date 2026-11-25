@@ -148,18 +148,23 @@ class MatchoraProvider : MainAPI() {
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse = coroutineScope {
-        val htDef = if (LiveSettings.mxHtChannels || LiveSettings.mxHtMatches) {
-            async { runCatching { MatchoraEngine.fetchHtHome() }.getOrNull() }
-        } else null
-        val liveDef = if (LiveSettings.mxLive) {
-            async { runCatching { MatchoraEngine.fetchLiveEvents() }.getOrDefault(emptyList()) }
-        } else null
-        val schedDef = if (LiveSettings.mxSchedule) {
-            async { runCatching { MatchoraEngine.fetchSchedule() }.getOrDefault(emptyList()) }
-        } else null
-        val itChDef = if (LiveSettings.mxItChannels) {
-            async { runCatching { MatchoraEngine.fetchItalianChannels() }.getOrDefault(emptyList()) }
-        } else null
+        val htDef = async {
+            if (LiveSettings.mxHtChannels || LiveSettings.mxHtMatches) {
+                runCatching { MatchoraEngine.fetchHtHome() }.getOrNull()
+            } else null
+        }
+        val liveDef = async {
+            if (LiveSettings.mxLive) runCatching { MatchoraEngine.fetchLiveEvents() }.getOrDefault(emptyList())
+            else emptyList()
+        }
+        val schedDef = async {
+            if (LiveSettings.mxSchedule) runCatching { MatchoraEngine.fetchSchedule() }.getOrDefault(emptyList())
+            else emptyList()
+        }
+        val itChDef = async {
+            if (LiveSettings.mxItChannels) runCatching { MatchoraEngine.fetchItalianChannels() }.getOrDefault(emptyList())
+            else emptyList()
+        }
 
         val rows = mutableListOf<HomePageList>()
 
@@ -168,28 +173,28 @@ class MatchoraProvider : MainAPI() {
             // Curated Italian Matchora HD channels directly addressable by channel ID
             MatchoraEngine.FALLBACK_IT_CHANNELS.forEach { cards += chCard(it) }
             // Also include working direct HLS channels from htsport.me (Rai 1 / Rai 2)
-            htDef?.await()?.channels
+            htDef.await()?.channels
                 ?.filter { it.page.equals("rai1.htm", true) || it.page.equals("rai2.htm", true) }
                 ?.forEach { cards += htChCard(it) }
             rows += HomePageList("📺 Canali Italiani (HTSport)", cards, false)
         }
 
         if (LiveSettings.mxLive) {
-            val live = liveDef?.await().orEmpty()
+            val live = liveDef.await()
             if (live.isNotEmpty()) {
                 rows += HomePageList("🔴 In diretta ora (Matchora)", live.map(::evCard), false)
             }
         }
 
         if (LiveSettings.mxHtMatches) {
-            val matches = htDef?.await()?.matches.orEmpty()
+            val matches = htDef.await()?.matches.orEmpty()
             if (matches.isNotEmpty()) {
                 rows += HomePageList("⚽ Partite del giorno (HTSport)", matches.map(::htMatchCard), false)
             }
         }
 
         if (LiveSettings.mxSchedule) {
-            val sched = schedDef?.await().orEmpty()
+            val sched = schedDef.await()
             sched.groupBy { it.sport }.entries
                 .sortedWith(
                     compareByDescending<Map.Entry<String, List<MatchoraEngine.MatchoraEvent>>> {
@@ -212,7 +217,7 @@ class MatchoraProvider : MainAPI() {
 
         if (LiveSettings.mxItChannels) {
             val mainIds = MatchoraEngine.FALLBACK_IT_CHANNELS.map { it.id }.toSet()
-            val extra = itChDef?.await().orEmpty().filter { it.id !in mainIds }.take(60)
+            val extra = itChDef.await().filter { it.id !in mainIds }.take(60)
             if (extra.isNotEmpty()) {
                 rows += HomePageList("🇮🇹 Altri canali IT (Matchora)", extra.map(::chCard), false)
             }
