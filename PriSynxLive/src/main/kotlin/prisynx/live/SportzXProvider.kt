@@ -20,14 +20,15 @@ import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.newDrmExtractorLink
 import com.lagradost.cloudstream3.utils.newExtractorLink
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import java.net.URI
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
+import java.net.URLDecoder
+import java.net.URLEncoder
 
 /**
- * SportzX live sports: one card per event, every broadcaster of the event is a link.
+ * SportzX live channels via v3 category/channel feeds (`cats.json` -> `cats/<cat>.json`).
  * ClearKey DASH is decrypted by ExoPlayer itself; WASM-gated embed pages are skipped.
  */
 @OptIn(kotlin.uuid.ExperimentalUuidApi::class, Prerelease::class)
@@ -48,84 +49,109 @@ class SportzXProvider : MainAPI() {
         /** Hosts gated by a Referer the feed doesn't always carry. */
         private val FORCED_REFERERS = mapOf(
             "vivo155.com" to "https://player.online909.com/",
-            "hereisman.net" to "https://gooz.aapmains.net/"
+            "hereisman.net" to "https://gooz.aapmains.net"
         )
         private val EMBED_HOSTS = listOf("taifood-blog.asia", "embedindia.st")
 
-        @Volatile private var cache: List<SportzXEngine.SportzEvent> = emptyList()
-        @Volatile private var cacheAt = 0L
+        @Volatile private var catCache: List<SportzXEngine.SportzCategory> = emptyList()
+        @Volatile private var catCacheAt = 0L
+        private val chanCache = HashMap<String, Pair<Long, List<SportzXEngine.SportzCatalogChannel>>>()
+        private const val TTL = 90_000L
 
-        suspend fun events(): List<SportzXEngine.SportzEvent> {
+        suspend fun categories(): List<SportzXEngine.SportzCategory> {
             val now = System.currentTimeMillis()
-            if (cache.isNotEmpty() && now - cacheAt < 90_000) return cache
-            val list = SportzXEngine.fetchEvents()
+            if (catCache.isNotEmpty() && now - catCacheAt < TTL) return catCache
+            val list = runCatching { SportzXEngine.fetchCategories() }.getOrDefault(emptyList())
             if (list.isNotEmpty()) {
-                cache = list; cacheAt = now
-                LiveSettings.rememberSports(list.map { it.category }.toSet())
+                catCache = list
+                catCacheAt = now
+                LiveSettings.rememberSports(list.map { it.title }.toSet())
             }
-            return list.ifEmpty { cache }
+            return list.ifEmpty { catCache }
         }
 
-        private val ROME = TimeZone.getTimeZone("Europe/Rome")
-        private fun fmt(pattern: String, t: Long) =
-            SimpleDateFormat(pattern, Locale.ITALIAN).apply { timeZone = ROME }.format(Date(t))
+        suspend fun channelsFor(cat: SportzXEngine.SportzCategory): List<SportzXEngine.SportzCatalogChannel> {
+            val now = System.currentTimeMillis()
+            synchronized(chanCache) {
+                chanCache[cat.catLink]?.let { (at, list) ->
+                    if (now - at < TTL && list.isNotEmpty()) return list
+                }
+            }
+            val list = runCatching { SportzXEngine.fetchCategoryChannels(cat) }.getOrDefault(emptyList())
+            if (list.isNotEmpty()) {
+                synchronized(chanCache) { chanCache[cat.catLink] = now to list }
+            }
+            return list
+        }
+
+        private fun encodeRef(catLink: String, chId: String, adsLimit: Int): String =
+            "$PREFIX${URLEncoder.encode(catLink, "UTF-8")}/$chId/$adsLimit"
+
+        private fun parseRef(url: String): Triple<String, String, Int> {
+            val raw = url.substringAfterLast(PREFIX).substringAfterLast("sportzx:").trim('/')
+            val parts = raw.split('/')
+            return if (parts.size >= 3) {
+                val ads = parts.last().toIntOrNull() ?: 0
+                val chId = parts[parts.size - 2]
+                val catLink = URLDecoder.decode(parts.dropLast(2).joinToString("/"), "UTF-8")
+                Triple(catLink, chId, ads)
+            } else {
+                Triple("", raw, 0)
+            }
+        }
     }
 
-    private fun visible(all: List<SportzXEngine.SportzEvent>) = all.filter {
-        LiveSettings.isSportEnabled(it.category) && (!LiveSettings.sportOnlyLive || it.isLive)
-    }
+    private fun card(ch: SportzXEngine.SportzCatalogChannel): SearchResponse =
+        newLiveSearchResponse(ch.title, encodeRef(ch.catLink, ch.id, ch.adsLimit), TvType.Live, false) {
+            posterUrl = ch.image ?: FALLBACK_POSTER
+        }
 
-    private fun poster(ev: SportzXEngine.SportzEvent) = ev.image ?: FALLBACK_POSTER
-
-    private fun card(ev: SportzXEngine.SportzEvent): SearchResponse {
-        val label = if (ev.isLive) "🔴 ${ev.title}" else "${fmt("dd/MM HH:mm", ev.start)} · ${ev.title}"
-        return newLiveSearchResponse(label, "$PREFIX${ev.id}", TvType.Live, false) {
-            posterUrl = poster(ev)
+    private suspend fun enabledCategoryChannels(): List<Pair<SportzXEngine.SportzCategory, List<SportzXEngine.SportzCatalogChannel>>> {
+        val cats = categories()
+            .filter { LiveSettings.isSportEnabled(it.title) }
+            .sortedByDescending { if (it.title.contains("sport", true)) 1 else 0 }
+        return coroutineScope {
+            cats.map { cat ->
+                async { cat to channelsFor(cat) }
+            }.awaitAll().filter { it.second.isNotEmpty() }
         }
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val evs = visible(events())
-        val rows = mutableListOf<HomePageList>()
-        evs.filter { it.isLive }.takeIf { it.isNotEmpty() }?.let {
-            rows += HomePageList("🔴 Sport in diretta", it.map(::card), false)
+        if (page > 1) return newHomePageResponse(emptyList(), false)
+        val rows = enabledCategoryChannels().map { (cat, list) ->
+            HomePageList("🏆 ${cat.title}", list.map(::card), false)
         }
-        evs.groupBy { it.category }.entries
-            .sortedByDescending { e -> e.value.size }
-            .forEach { (cat, list) -> rows += HomePageList("🏆 $cat", list.map(::card), false) }
         return newHomePageResponse(rows, false)
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
         val q = query.trim().lowercase()
         if (q.isEmpty()) return emptyList()
-        return visible(events()).filter { ev ->
-            ev.title.lowercase().contains(q) || ev.category.lowercase().contains(q) ||
-                ev.eventName.lowercase().contains(q) || ev.teams.any { it.lowercase().contains(q) }
+        return enabledCategoryChannels().flatMap { (_, list) -> list }.filter { ch ->
+            ch.title.lowercase().contains(q) ||
+                ch.category.lowercase().contains(q) ||
+                ch.formats.any { it.lowercase().contains(q) }
         }.map(::card)
     }
 
-    private fun idOf(url: String) = url.substringAfterLast("sportzx://").substringAfterLast("sportzx:").trim('/')
-
     override suspend fun load(url: String): LoadResponse {
-        val id = idOf(url)
-        val ev = events().find { it.id == id }
-        val title = ev?.title ?: "Evento sportivo $id"
+        val (catLink, chId, adsLimit) = parseRef(url)
+        val cat = categories().find { it.catLink == catLink }
+        val ch = cat?.let { channelsFor(it).find { c -> c.id == chId } }
+        val title = ch?.title ?: "Canale SportzX $chId"
         val plot = buildString {
-            if (ev == null) return@buildString
-            append(if (ev.isLive) "🔴 IN DIRETTA ORA" else "🕒 Inizio: ${fmt("EEEE dd/MM HH:mm", ev.start)}")
-            ev.end?.let { append(" – fine prevista ${fmt("HH:mm", it)}") }
-            append("<br><br>")
-            if (ev.eventName.isNotBlank() && ev.eventName != ev.title) append("🏷️ ${ev.eventName}<br>")
-            if (ev.teams.size == 2) append("⚔️ ${ev.teams[0]} vs ${ev.teams[1]}<br>")
-            append("🏆 ${ev.category}<br><br>")
-            append("I canali disponibili si scelgono dal player: se uno non parte prova il successivo.")
+            append("🏆 ${ch?.category ?: catLink.ifBlank { "SportzX" }}<br>")
+            if (!ch?.formats.isNullOrEmpty()) {
+                append("📺 ${ch!!.formats.take(12).joinToString(" · ")}<br>")
+            }
+            append("<br>I canali disponibili si scelgono dal player: se uno non parte prova il successivo.")
         }
-        return newLiveStreamLoadResponse(title, "$PREFIX$id", "$PREFIX$id") {
-            posterUrl = ev?.let(::poster) ?: FALLBACK_POSTER
-            backgroundPosterUrl = ev?.image
+        return newLiveStreamLoadResponse(title, encodeRef(catLink, chId, adsLimit), encodeRef(catLink, chId, adsLimit)) {
+            posterUrl = ch?.image ?: cat?.image ?: FALLBACK_POSTER
+            backgroundPosterUrl = ch?.image ?: cat?.image
             this.plot = plot
-            tags = listOfNotNull(if (ev?.isLive == true) "Live" else "In programma", ev?.category)
+            tags = listOfNotNull("Live", ch?.category ?: cat?.title)
         }
     }
 
@@ -141,11 +167,13 @@ class SportzXProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val channels = runCatching { SportzXEngine.fetchChannels(idOf(data)) }.getOrDefault(emptyList())
+        val (_, chId, adsLimit) = parseRef(data)
+        val channels = runCatching { SportzXEngine.fetchChannelStreams(chId, adsLimit) }.getOrDefault(emptyList())
         var emitted = 0
-        // Plain streams first, ClearKey ones after.
-        val ordered = channels.sortedBy { if (it.api.orEmpty().contains(':')) 1 else 0 }
-        ordered.forEachIndexed { index, ch ->
+        val decodedApis = channels.map { it to SportzXEngine.deobfApi(it.api, adsLimit) }
+        val ordered = decodedApis.sortedBy { if (it.second.contains(':')) 1 else 0 }
+
+        ordered.forEachIndexed { index, (ch, api) ->
             val (url, h) = SportzXEngine.parseLink(ch.link ?: return@forEachIndexed)
             if (!url.startsWith("http")) return@forEachIndexed
             val hostName = host(url)
@@ -153,7 +181,6 @@ class SportzXProvider : MainAPI() {
                 (url.contains("/embed/", true) && !Regex("\\.(m3u8|mpd|ts|mp4)(\\?|$)", RegexOption.IGNORE_CASE).containsMatchIn(url))
             ) return@forEachIndexed
 
-            val api = ch.api.orEmpty().trim()
             val isDrm = api.contains(':')
             if (isDrm && !LiveSettings.sportShowDrm) return@forEachIndexed
             val isDash = url.contains(".mpd", true)

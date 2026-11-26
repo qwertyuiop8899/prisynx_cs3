@@ -48,7 +48,7 @@ object LiveSettingsDialog {
 
     private fun sports(ctx: Context) {
         // Refresh in background so newly seen categories are remembered, but show the full list now.
-        ioSafe { runCatching { SportzXProvider.events() } }
+        ioSafe { runCatching { SportzXProvider.categories() } }
         val cats = LiveSettings.allSports()
         val checked = cats.map { LiveSettings.isSportEnabled(it) }.toBooleanArray()
         AlertDialog.Builder(ctx)

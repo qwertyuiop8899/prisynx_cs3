@@ -1,25 +1,27 @@
 package prisynx.live
 
 import android.util.Base64
-import com.lagradost.cloudstream3.app
+import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.annotation.JsonProperty
+import com.lagradost.cloudstream3.app
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.text.SimpleDateFormat
-import java.util.Locale
-import java.util.TimeZone
 
 /**
- * SportzX (es.bandspx.com) client. Payloads are {"data": base64url} encrypted with
- * the app's ChaCha-like AEAD: [0x03][16B salt][12B nonce][ciphertext][16B MAC].
+ * SportzX (es.bandspx.com) client using the v3 category/channel endpoints:
+ *   - cats.json
+ *   - cats/<catLink>.json
+ *   - channels/<channelId>[e].json
+ * Payloads are {"data": base64url} encrypted with [0x03][16B salt][12B nonce][ciphertext][16B MAC].
  */
 object SportzXEngine {
     private const val BASE = "https://es.bandspx.com"
     private const val UA = "Dalvik/2.1.0 (Linux; Android 13)"
     const val BROWSER_UA =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+
+    private const val ALPHA = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
     private val SECRET_A = hex("1676ec7db4771b0d826d70369b579684b182d2c0133be041bdd55f5d6d79a98b")
     private val SECRET_B = byteArrayOf(
@@ -115,44 +117,76 @@ object SportzXEngine {
         return decryptPayload(data)
     }
 
-    suspend fun fetchEvents(): List<SportzEvent> {
-        val json = fetchDecrypted("events.json") ?: return emptyList()
-        val now = System.currentTimeMillis()
-        return parseList(json, RawEvent::class.java).mapNotNull { raw ->
-            val id = raw.id?.toString() ?: return@mapNotNull null
-            val info = raw.eventInfo
-            val start = parseDate(info?.startTime)
-            val end = parseDate(info?.endTime)
-            val image = raw.image?.takeIf { it.startsWith("http") }
-                ?: info?.eventBanner?.takeIf { it.startsWith("http") }
-                ?: info?.teamAFlag?.takeIf { it.startsWith("http") }
-            SportzEvent(
-                id = id,
-                title = raw.title?.takeIf { it.isNotBlank() } ?: info?.eventName ?: "Evento $id",
-                category = raw.cat?.trim()?.takeIf { it.isNotBlank() } ?: "Altro",
-                eventName = info?.eventName?.trim().orEmpty(),
-                teams = listOfNotNull(info?.teamA, info?.teamB).filter { it.isNotBlank() && it != "null" }.distinct(),
-                image = image,
-                start = start ?: now,
-                end = end,
-                isLive = start != null && start <= now && (end == null || end >= now)
+    suspend fun fetchCategories(): List<SportzCategory> {
+        val json = fetchDecrypted("cats.json") ?: return emptyList()
+        return parseList(json, RawCategory::class.java).mapNotNull { raw ->
+            val link = raw.catLink?.trim().orEmpty()
+            if (link.isBlank() || link.startsWith("http://", true) || link.startsWith("https://", true)) {
+                return@mapNotNull null
+            }
+            SportzCategory(
+                id = raw.id?.toString().orEmpty().ifBlank { link },
+                title = raw.title?.trim()?.takeIf { it.isNotBlank() } ?: link,
+                catLink = link,
+                image = raw.image?.trim()?.takeIf { it.startsWith("http") }
             )
-        }.filter { it.end == null || it.end >= now }
-            .sortedWith(compareByDescending<SportzEvent> { it.isLive }.thenBy { it.start })
+        }
     }
 
-    suspend fun fetchChannels(eventId: String): List<SportzChannel> {
-        val json = fetchDecrypted("channels/$eventId.json") ?: return emptyList()
-        return parseList(json, SportzChannel::class.java)
+    private fun categoryPath(catLink: String): String =
+        "cats/" + catLink.trim().lowercase().replace(" ", "-") + ".json"
+
+    suspend fun fetchCategoryChannels(cat: SportzCategory): List<SportzCatalogChannel> {
+        val json = fetchDecrypted(categoryPath(cat.catLink)) ?: return emptyList()
+        return parseList(json, RawCatalogChannel::class.java).mapNotNull { raw ->
+            val id = raw.id?.toString()?.trim()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            if (raw.publish?.toString()?.trim() == "0") return@mapNotNull null
+            SportzCatalogChannel(
+                id = id,
+                title = raw.title?.trim()?.takeIf { it.isNotBlank() } ?: "Canale $id",
+                category = cat.title,
+                catLink = cat.catLink,
+                adsLimit = raw.adsLimit?.toString()?.trim()?.toIntOrNull() ?: 0,
+                formats = raw.formats.orEmpty().mapNotNull { it?.toString()?.trim()?.takeIf { s -> s.isNotBlank() } },
+                image = raw.image?.trim()?.takeIf { it.startsWith("http") } ?: cat.image
+            )
+        }
     }
 
-    private fun parseDate(s: String?): Long? {
-        if (s.isNullOrBlank()) return null
+    suspend fun fetchChannelStreams(channelId: String, adsLimit: Int): List<SportzStream> {
+        val order = if (adsLimit > 0) {
+            listOf("channels/${channelId}e.json", "channels/$channelId.json")
+        } else {
+            listOf("channels/$channelId.json", "channels/${channelId}e.json")
+        }
+        for (path in order) {
+            val json = runCatching { fetchDecrypted(path) }.getOrNull() ?: continue
+            val list = runCatching { parseList(json, SportzStream::class.java) }.getOrNull().orEmpty()
+            if (list.isNotEmpty()) return list
+        }
+        return emptyList()
+    }
+
+    private fun shiftChar(str: String, i: Int): String {
+        if (str.isEmpty() || i == 0) return str
+        val pos = str.length - ((maxOf(i - 1, 0) % str.length) + 1)
+        val idx = ALPHA.indexOf(str[pos])
+        if (idx < 0) return str
+        val next = ALPHA[(idx + i) % 62]
+        return str.substring(0, pos) + next + str.substring(pos + 1)
+    }
+
+    /** Deobfuscates ClearKey `api` values returned by `channels/<id>e.json` when `adsLimit > 0`. */
+    fun deobfApi(api: String?, adsLimit: Int): String {
+        val s = api.orEmpty().trim()
+        if (s.isEmpty() || s.startsWith("http") || s.contains(':') || s.contains('{') || adsLimit <= 0) {
+            return s
+        }
         return try {
-            SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
-                .parse(s.trim())?.time
+            val decoded = String(Base64.decode(shiftChar(s, adsLimit), Base64.DEFAULT), Charsets.UTF_8)
+            shiftChar(decoded, adsLimit)
         } catch (_: Exception) {
-            null
+            s
         }
     }
 
@@ -169,38 +203,40 @@ object SportzXEngine {
         return parts[0].trim() to headers
     }
 
-    data class RawEvent(
+    data class RawCategory(
         @JsonProperty("id") val id: Any? = null,
         @JsonProperty("title") val title: String? = null,
-        @JsonProperty("cat") val cat: String? = null,
-        @JsonProperty("image") val image: String? = null,
-        @JsonProperty("eventInfo") val eventInfo: RawEventInfo? = null
+        @JsonProperty("catLink") val catLink: String? = null,
+        @JsonProperty("image") val image: String? = null
     )
 
-    data class RawEventInfo(
-        @JsonProperty("teamA") val teamA: String? = null,
-        @JsonProperty("teamB") val teamB: String? = null,
-        @JsonProperty("eventName") val eventName: String? = null,
-        @JsonProperty("eventBanner") val eventBanner: String? = null,
-        @JsonProperty("startTime") val startTime: String? = null,
-        @JsonProperty("endTime") val endTime: String? = null,
-        @JsonProperty("teamAFlag") val teamAFlag: String? = null,
-        @JsonProperty("teamBFlag") val teamBFlag: String? = null
+    data class RawCatalogChannel(
+        @JsonProperty("id") val id: Any? = null,
+        @JsonProperty("title") val title: String? = null,
+        @JsonProperty("publish") val publish: Any? = null,
+        @JsonProperty("adsLimit") val adsLimit: Any? = null,
+        @JsonProperty("formats") val formats: List<Any?>? = null,
+        @JsonProperty("image") val image: String? = null
     )
 
-    data class SportzEvent(
+    data class SportzCategory(
+        val id: String,
+        val title: String,
+        val catLink: String,
+        val image: String?
+    )
+
+    data class SportzCatalogChannel(
         val id: String,
         val title: String,
         val category: String,
-        val eventName: String,
-        val teams: List<String>,
-        val image: String?,
-        val start: Long,
-        val end: Long?,
-        val isLive: Boolean
+        val catLink: String,
+        val adsLimit: Int,
+        val formats: List<String>,
+        val image: String?
     )
 
-    data class SportzChannel(
+    data class SportzStream(
         @JsonProperty("title") val title: String? = null,
         @JsonProperty("link") val link: String? = null,
         @JsonProperty("api") val api: String? = null
