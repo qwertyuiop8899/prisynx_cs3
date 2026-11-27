@@ -1,0 +1,22 @@
+[
+  {
+    "iconUrl": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/main/assets/logos/PriSynx.png",
+    "fileHash": "sha256-218db58aa1b7b491259aaf29493b39d14a8a9f3021edd6cec8eca12c6b580159",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/qwertyuiop8899/prisynx_cs3",
+    "fileSize": 210324,
+    "status": 1,
+    "language": "it",
+    "authors": [
+      "PriSynx"
+    ],
+    "tvTypes": [
+      "Others"
+    ],
+    "version": 2,
+    "internalName": "PriSync",
+    "description": "PriSync: salva e ripristina con un PIN tutta la configurazione di CloudStream (repository, plugin, impostazioni dei plugin, cronologia, preferiti). I plugin mancanti vengono riscaricati in automatico al riavvio.",
+    "url": "https://raw.githubusercontent.com/qwertyuiop8899/prisynx_cs3/builds/PriSync.cs3",
+    "name": "PriSync"
+  }
+]
