@@ -15,7 +15,8 @@ object LiveSettingsDialog {
             "⚽ Partite.cc: sezioni",
             "🏆 Partite.cc: campionati",
             "📺 Partite.cc: canali TV",
-            "📡 HTSport: sezioni"
+            "📡 HTSport: sezioni",
+            "⚡ ZLive: categorie"
         )
         AlertDialog.Builder(ctx)
             .setTitle("PriSynx Live")
@@ -28,6 +29,7 @@ object LiveSettingsDialog {
                     4 -> leagueGroups(ctx, PartiteCatalog.leagues)
                     5 -> channelGroups(ctx, PartiteCatalog.channels)
                     6 -> mxSections(ctx)
+                    7 -> zliveCats(ctx)
                 }
             }
             .setNegativeButton("Chiudi", null)
@@ -178,6 +180,21 @@ object LiveSettingsDialog {
                     3 -> LiveSettings.mxSchedule = on
                     else -> LiveSettings.mxItChannels = on
                 }
+            }
+            .setPositiveButton("OK") { _, _ -> show(ctx) }
+            .show()
+    }
+
+    private fun zliveCats(ctx: Context) {
+        ioSafe { runCatching { ZLiveEngine.fetchChannels() } }
+        val cats = LiveSettings.allZliveCats()
+        val labels = (listOf("🇮🇹 Italia (canali " it")") + cats).toTypedArray()
+        val checked = (listOf(LiveSettings.zliveItalia) + cats.map { LiveSettings.isZliveCatEnabled(it) }).toBooleanArray()
+        AlertDialog.Builder(ctx)
+            .setTitle("Categorie ZLive")
+            .setMultiChoiceItems(labels, checked) { _, i, on ->
+                if (i == 0) LiveSettings.zliveItalia = on
+                else LiveSettings.setZliveCatEnabled(cats[i - 1], on)
             }
             .setPositiveButton("OK") { _, _ -> show(ctx) }
             .show()

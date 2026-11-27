@@ -13,6 +13,7 @@ class LivePlugin : Plugin() {
         registerMainAPI(VavooProvider())
         registerMainAPI(PartiteLiveProvider())
         registerMainAPI(MatchoraProvider())
+        registerMainAPI(ZLiveProvider())
         openSettings = { ctx -> LiveSettingsDialog.show(ctx) }
     }
 }

@@ -19,7 +19,7 @@ tasks.named("preBuild").configure { dependsOn(syncVavoo) }
 version = 12
 
 cloudstream {
-    description = "PriSynx Live: TV in diretta Vavoo (nazioni selezionabili, EPG Italia), HTSport (canali Sky/DAZN IT e sport live con decodifica segmenti integrata), SportzX e Partite.cc."
+    description = "PriSynx Live: TV in diretta Vavoo (nazioni selezionabili, EPG Italia), HTSport (canali Sky/DAZN IT e sport live), ZLive (canali live per categoria + Italia), SportzX e Partite.cc."
     authors = listOf("PriSynx")
     status = 1
     tvTypes = listOf("Live")

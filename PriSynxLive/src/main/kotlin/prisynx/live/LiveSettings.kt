@@ -103,4 +103,27 @@ object LiveSettings {
     var mxItChannels: Boolean
         get() = bool("mx_it_channels", true)
         set(v) = setBool("mx_it_channels", v)
+
+    // ── ZLive ──
+    var zliveItalia: Boolean
+        get() = bool("zlive_italia", true)
+        set(v) = setBool("zlive_italia", v)
+
+    fun isZliveCatEnabled(cat: String) = !bool("zlive_off_${cat.lowercase()}", false)
+    fun setZliveCatEnabled(cat: String, on: Boolean) = setBool("zlive_off_${cat.lowercase()}", !on)
+
+    private val BASE_ZLIVE_CATS = listOf("Sports", "Kids", "F1", "Entertainment", "Other")
+
+    fun allZliveCats(): List<String> {
+        val seen = prefs?.getStringSet("seen_zlive_cats", emptySet()).orEmpty()
+        return (BASE_ZLIVE_CATS + seen).distinctBy { it.lowercase() }
+            .sortedWith(compareBy<String>({ it.equals("Other", true) }, { it.lowercase() }))
+    }
+
+    fun rememberZliveCats(cats: Collection<String>) {
+        val p = prefs ?: return
+        val old = p.getStringSet("seen_zlive_cats", emptySet()).orEmpty()
+        val merged = old + cats.filter { c -> BASE_ZLIVE_CATS.none { it.equals(c, true) } }
+        if (merged.size != old.size) p.edit().putStringSet("seen_zlive_cats", HashSet(merged)).apply()
+    }
 }
