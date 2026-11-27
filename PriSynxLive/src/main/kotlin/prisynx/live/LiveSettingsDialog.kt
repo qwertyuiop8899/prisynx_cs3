@@ -188,7 +188,7 @@ object LiveSettingsDialog {
     private fun zliveCats(ctx: Context) {
         ioSafe { runCatching { ZLiveEngine.fetchChannels() } }
         val cats = LiveSettings.allZliveCats()
-        val labels = (listOf("🇮🇹 Italia (canali " it")") + cats).toTypedArray()
+        val labels = (listOf("🇮🇹 Italia") + cats).toTypedArray()
         val checked = (listOf(LiveSettings.zliveItalia) + cats.map { LiveSettings.isZliveCatEnabled(it) }).toBooleanArray()
         AlertDialog.Builder(ctx)
             .setTitle("Categorie ZLive")
